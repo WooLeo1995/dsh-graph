@@ -57,14 +57,16 @@ function fakeSubagents(
     seq += 1
     const childId = `child-${seq}`
     started.push({ kind: 'start', childId })
-    const scripted = script[seq - 1]!
-    setTimeout(() =>{  emitEnd(childId, scripted) }, 0)
+    const scripted = script[seq - 1]
+    // Empty-script tests replace the end emission themselves; never schedule
+    // a timer that dereferences an exhausted script entry.
+    if (scripted !== undefined) setTimeout(() => { emitEnd(childId, scripted) }, 0)
     return { childId, messageId: `m-${childId}` }
   }
   const followup = async (_parent: unknown, childId: unknown, content: unknown): Promise<{ id: string }> => {
     started.push({ kind: 'followup', childId, content })
-    const scripted = script[seq]!
-    setTimeout(() =>{  emitEnd(childId, scripted) }, 0)
+    const scripted = script[seq]
+    if (scripted !== undefined) setTimeout(() => { emitEnd(childId, scripted) }, 0)
     return { id: 'followup-accepted' }
   }
   return { startContinuable, followup, started }
