@@ -35,6 +35,42 @@ Per-package test gates (per-file 100% coverage, i18n trio records, staged lint) 
 /graph <objective> [--budget <tokens>] | status | show | pause | resume [--budget <tokens>] | retry [node] | clear
 ```
 
+## Local installation (trial)
+
+1. Build the scheduler and the client bundle in the host checkout (the workgraph packages' `lib/` must be fresh):
+   ```bash
+   cd /Users/wutianyu/Downloads/project/github/deepseek-harness
+   node_modules/.bin/tsc -b packages/workgraph/workgraph packages/workgraph/workgraph-scheduler packages/workgraph/command-workgraph
+   node_modules/.bin/tsdown           # host face; the client face covers ui-workgraph
+   ```
+2. Link the packages into the dsh profile (the user plugin workspace resolves from `~/.dsh/profiles/`):
+   ```bash
+   cd ~/.dsh/profiles/node_modules/@deepseek-ai
+   ln -s <host>/packages/workgraph/workgraph dsh-workgraph
+   ln -s <host>/packages/workgraph/workgraph-scheduler dsh-workgraph-scheduler
+   ln -s <host>/packages/workgraph/command-workgraph dsh-command-workgraph
+   ln -s <host>/packages/client/ui-workgraph dsh-client-ui-workgraph
+   ```
+3. Add the plugin rows to the web profile patch (`~/.dsh/profiles/web/cordis.patch.yml`):
+   ```yaml
+   - insert:
+       - id: workgraph
+         name: '@deepseek-ai/dsh-workgraph-scheduler'
+         config:
+           workgraphDir: !!js dshHomePath('workgraph')
+       - id: command-workgraph
+         name: '@deepseek-ai/dsh-command-workgraph'
+       - id: ui-workgraph
+         name: '@deepseek-ai/dsh-client-ui-workgraph'
+   ```
+4. Start a separate trial instance (default port 3080 may be taken by another instance):
+   ```bash
+   node apps/cli/lib/bin.js web --patch examples/web-graph.patch.yml
+   ```
+   The trial instance listens on `http://127.0.0.1:3081`; open it and run `/graph <objective>` in a session. To uninstall, remove the rows from `cordis.patch.yml` (or delete the file) and restart.
+
+See [examples/web-graph.patch.yml](examples/web-graph.patch.yml) for the port overlay. The `workgraphDir` key lives in the scheduler's cordis Config schema; the loader unwraps the scheduler class as the package default export (class-plugin convention).
+
 Validated cordis.yml config: `concurrency` (3, clamp 1–8), `nodeRounds` (3, 1–8), `replanCap` (3, 0–10), `optimizer` (on), `maxNodes` (24), `historyMax` (64), `planBytesMax` (256 KiB), `childAwaitBudget` (600 s, 1–3600).
 
 ## Documentation

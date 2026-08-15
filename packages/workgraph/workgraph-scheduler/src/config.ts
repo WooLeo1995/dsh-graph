@@ -35,6 +35,8 @@ export const CHILD_AWAIT_BUDGET_CLAMP = { min: 1, max: 3600 } as const
 
 /** Validated scheduler tunables; every field resolved with its default. */
 export interface WorkGraphConfig {
+  /** Harness home workgraph dir (baselines, worktrees, project revival). */
+  readonly workgraphDir?: string
   /** Parallel batch cap; clamp 1–8, default 3. */
   readonly concurrency: number
   /** Worker-verifier round cap per node; clamp 1–8, default 3. */
@@ -55,6 +57,7 @@ export interface WorkGraphConfig {
 
 /** The cordis `Config` schema: defaults applied, clamps enforced at load. */
 export const workGraphConfigSchema: z<WorkGraphConfig> = z.object({
+  workgraphDir: z.string(),
   concurrency: z.number().step(1).min(CONCURRENCY_CLAMP.min).max(CONCURRENCY_CLAMP.max)
     .default(DEFAULT_CONCURRENCY),
   nodeRounds: z.number().step(1).min(NODE_ROUNDS_CLAMP.min).max(NODE_ROUNDS_CLAMP.max)

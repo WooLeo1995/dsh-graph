@@ -13,18 +13,20 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 
 EXCLUDES=(--exclude lib --exclude node_modules --exclude .dsh --exclude '*.tsbuildinfo')
 
-mapfile -t PAIRS < <(cat <<'EOF'
-packages/workgraph/workgraph
-packages/workgraph/workgraph-scheduler
-packages/workgraph/command-workgraph
-packages/client/ui-workgraph
-.scratch/workgraph
-.agents/notes/implemented/feature
-docs/subsystems/workgraph.md
-docs/subsystems/workgraph.zh.md
-docs/subsystems/workgraph.i18n.yaml
-EOF
+PAIRS=(
+  packages/workgraph/workgraph
+  packages/workgraph/workgraph-scheduler
+  packages/workgraph/command-workgraph
+  packages/client/ui-workgraph
+  .scratch/workgraph
+  docs/subsystems/workgraph.md
+  docs/subsystems/workgraph.zh.md
+  docs/subsystems/workgraph.i18n.yaml
 )
+
+# The workgraph Agent Notes only (the host feature dir holds many other notes).
+NOTES_DIR=.agents/notes/implemented/feature
+NOTES_FILTERS=(--include '2026-08-14-workgraph-v*' --exclude '*')
 
 case "${1:-}" in
   pull)
@@ -33,6 +35,8 @@ case "${1:-}" in
       rsync -a "${EXCLUDES[@]}" "$HOST/$rel" "$HERE/$(dirname "$rel")/"
     done
     rsync -a "${EXCLUDES[@]}" "$HOST/packages/workgraph/README.md" "$HOST/packages/workgraph/README.zh.md" "$HOST/packages/workgraph/README.i18n.yaml" "$HERE/packages/workgraph/"
+    mkdir -p "$HERE/$NOTES_DIR"
+    rsync -a "${EXCLUDES[@]}" "${NOTES_FILTERS[@]}" "$HOST/$NOTES_DIR/" "$HERE/$NOTES_DIR/"
     echo "pulled from $HOST"
     ;;
   push)
@@ -41,6 +45,8 @@ case "${1:-}" in
       rsync -a "${EXCLUDES[@]}" "$HERE/$rel" "$HOST/$(dirname "$rel")/"
     done
     rsync -a "${EXCLUDES[@]}" "$HERE/packages/workgraph/README.md" "$HERE/packages/workgraph/README.zh.md" "$HERE/packages/workgraph/README.i18n.yaml" "$HOST/packages/workgraph/"
+    mkdir -p "$HOST/$NOTES_DIR"
+    rsync -a "${EXCLUDES[@]}" "${NOTES_FILTERS[@]}" "$HERE/$NOTES_DIR/" "$HOST/$NOTES_DIR/"
     echo "pushed to $HOST"
     ;;
   *)

@@ -1,0 +1,10 @@
+# dsh-graph 试用组合 overlay:独立的 workgraph 试用实例端口。
+#
+# 插件行已装入用户 patch 层(~/.dsh/profiles/web/cordis.patch.yml);
+# 本文件只把 webserver 移到 3081,避开默认 3080 上的既有实例。
+# 用法(deepseek-harness fork 根目录):
+#   node apps/cli/lib/bin.js web --patch examples/web-graph.patch.yml
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3081

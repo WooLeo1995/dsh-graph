@@ -60,6 +60,7 @@ describe('work graph config', () => {
   it('enforces the documented clamps at the cordis load boundary', () => {
     // The schema input is the full validated shape; defaults still apply.
     const base: WorkGraphConfig = {
+      workgraphDir: '/tmp/wg',
       concurrency: DEFAULT_CONCURRENCY,
       nodeRounds: DEFAULT_NODE_ROUNDS,
       replanCap: DEFAULT_REPLAN_CAP,
@@ -79,5 +80,6 @@ describe('work graph config', () => {
     expect(() => workGraphConfigSchema({ ...base, childAwaitBudget: 0 })).toThrow()
     expect(workGraphConfigSchema({ ...base, optimizer: false }).optimizer).toBe(false)
     expect(workGraphConfigSchema({ ...base, planBytesMax: 512 }).planBytesMax).toBe(512)
+    expect(workGraphConfigSchema({ ...base }).workgraphDir).toBe('/tmp/wg')
   })
 })

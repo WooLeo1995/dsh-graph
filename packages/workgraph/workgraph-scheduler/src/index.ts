@@ -104,3 +104,6 @@ export {
 export type { FileMerge, GitSeam } from './worktrees.ts'
 export { subagentPlannerSpawn, WorkGraphScheduler } from './scheduler.ts'
 export type { WorkGraphSchedulerConfig } from './scheduler.ts'
+// The cordis plugin entry: the loader unwraps the default export before
+// applying the plugin (class plugins follow this convention).
+export { WorkGraphScheduler as default } from './scheduler.ts'

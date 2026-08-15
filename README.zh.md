@@ -35,6 +35,42 @@ CONTEXT.md                 设计 grilling 中确立的领域词汇表
 /graph <objective> [--budget <tokens>] | status | show | pause | resume [--budget <tokens>] | retry [node] | clear
 ```
 
+## 本机安装(试用)
+
+1. 在宿主 checkout 中构建调度器与客户端 bundle(workgraph 各包的 `lib/` 须为最新):
+   ```bash
+   cd /Users/wutianyu/Downloads/project/github/deepseek-harness
+   node_modules/.bin/tsc -b packages/workgraph/workgraph packages/workgraph/workgraph-scheduler packages/workgraph/command-workgraph
+   node_modules/.bin/tsdown           # host face;client face 覆盖 ui-workgraph
+   ```
+2. 把包链接进 dsh profile(用户插件工作区从 `~/.dsh/profiles/` 解析):
+   ```bash
+   cd ~/.dsh/profiles/node_modules/@deepseek-ai
+   ln -s <host>/packages/workgraph/workgraph dsh-workgraph
+   ln -s <host>/packages/workgraph/workgraph-scheduler dsh-workgraph-scheduler
+   ln -s <host>/packages/workgraph/command-workgraph dsh-command-workgraph
+   ln -s <host>/packages/client/ui-workgraph dsh-client-ui-workgraph
+   ```
+3. 把插件行加入 web profile patch(`~/.dsh/profiles/web/cordis.patch.yml`):
+   ```yaml
+   - insert:
+       - id: workgraph
+         name: '@deepseek-ai/dsh-workgraph-scheduler'
+         config:
+           workgraphDir: !!js dshHomePath('workgraph')
+       - id: command-workgraph
+         name: '@deepseek-ai/dsh-command-workgraph'
+       - id: ui-workgraph
+         name: '@deepseek-ai/dsh-client-ui-workgraph'
+   ```
+4. 启动独立试用实例(默认 3080 可能被既有实例占用):
+   ```bash
+   node apps/cli/lib/bin.js web --patch examples/web-graph.patch.yml
+   ```
+   试用实例监听 `http://127.0.0.1:3081`;打开后在会话中运行 `/graph <objective>`。卸载:从 `cordis.patch.yml` 移除这些行(或删除该文件)后重启。
+
+端口覆盖见 [examples/web-graph.patch.yml](examples/web-graph.patch.yml)。`workgraphDir` 位于调度器的 cordis Config schema;loader 以包默认导出取用调度器类(class 插件惯例)。
+
 经校验的 cordis.yml 配置:`concurrency`(3,钳 1–8)、`nodeRounds`(3,1–8)、`replanCap`(3,0–10)、`optimizer`(开)、`maxNodes`(24)、`historyMax`(64)、`planBytesMax`(256 KiB)、`childAwaitBudget`(600 秒,1–3600)。
 
 ## 文档
