@@ -34,11 +34,13 @@ export const VERIFIER_DENY_LIST: string[] = [
   'write',
   'edit',
   'subagent',
+  'subagent_fork',
   'workflow',
-  'jobs',
+  'job_list',
+  'job_output',
+  'job_kill',
   'skill',
-  'todo',
-  'code-runtime',
+  'todo_write',
   'ask_user_question',
 ]
 

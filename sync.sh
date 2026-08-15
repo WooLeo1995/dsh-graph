@@ -28,6 +28,10 @@ PAIRS=(
 NOTES_DIR=.agents/notes/implemented/feature
 NOTES_FILTERS=(--include '2026-08-14-workgraph-v*' --exclude '*')
 
+# The workgraph bug-fix notes (the host bug-fix dir holds many other notes).
+BUGFIX_NOTES_DIR=.agents/notes/implemented/bug-fix
+BUGFIX_NOTES_FILTERS=(--include '2026-08-15-workgraph-*' --exclude '*')
+
 case "${1:-}" in
   pull)
     for rel in "${PAIRS[@]}"; do
@@ -37,6 +41,8 @@ case "${1:-}" in
     rsync -a "${EXCLUDES[@]}" "$HOST/packages/workgraph/README.md" "$HOST/packages/workgraph/README.zh.md" "$HOST/packages/workgraph/README.i18n.yaml" "$HERE/packages/workgraph/"
     mkdir -p "$HERE/$NOTES_DIR"
     rsync -a "${EXCLUDES[@]}" "${NOTES_FILTERS[@]}" "$HOST/$NOTES_DIR/" "$HERE/$NOTES_DIR/"
+    mkdir -p "$HERE/$BUGFIX_NOTES_DIR"
+    rsync -a "${EXCLUDES[@]}" "${BUGFIX_NOTES_FILTERS[@]}" "$HOST/$BUGFIX_NOTES_DIR/" "$HERE/$BUGFIX_NOTES_DIR/"
     echo "pulled from $HOST"
     ;;
   push)
@@ -47,6 +53,8 @@ case "${1:-}" in
     rsync -a "${EXCLUDES[@]}" "$HERE/packages/workgraph/README.md" "$HERE/packages/workgraph/README.zh.md" "$HERE/packages/workgraph/README.i18n.yaml" "$HOST/packages/workgraph/"
     mkdir -p "$HOST/$NOTES_DIR"
     rsync -a "${EXCLUDES[@]}" "${NOTES_FILTERS[@]}" "$HERE/$NOTES_DIR/" "$HOST/$NOTES_DIR/"
+    mkdir -p "$HOST/$BUGFIX_NOTES_DIR"
+    rsync -a "${EXCLUDES[@]}" "${BUGFIX_NOTES_FILTERS[@]}" "$HERE/$BUGFIX_NOTES_DIR/" "$HOST/$BUGFIX_NOTES_DIR/"
     echo "pushed to $HOST"
     ;;
   *)

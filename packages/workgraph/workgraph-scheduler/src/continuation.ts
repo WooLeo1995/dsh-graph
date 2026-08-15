@@ -19,14 +19,23 @@ import type { SubagentRunEndInfo } from '@deepseek-ai/dsh-subagent'
 import type { ToolRestriction } from '@deepseek-ai/dsh-tools'
 import { parseWorkerReport, type WorkerEpisodeOutcome } from './worker.ts'
 
-/** The worker's delegation posture: no children, no self-modifying runtime. */
+/**
+ * The worker's delegation posture: no children, no self-modifying runtime.
+ * The deny list must name tools exactly as registered in the host harness —
+ * `tools.restrict()` fails loudly on unregistered names (the jxca names
+ * `jobs`/`todo`/`code-runtime` have no registry counterpart here). The job
+ * family is `job_list`/`job_output`/`job_kill`, the todo tool is
+ * `todo_write`, and delegation splits into `subagent`/`subagent_fork`.
+ */
 export const WORKER_DENY_LIST: string[] = [
   'subagent',
+  'subagent_fork',
   'workflow',
-  'jobs',
+  'job_list',
+  'job_output',
+  'job_kill',
   'skill',
-  'todo',
-  'code-runtime',
+  'todo_write',
 ]
 
 /** The tool restriction applied to worker children. */
