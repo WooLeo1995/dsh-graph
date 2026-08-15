@@ -1,0 +1,17 @@
+# node
+node_modules/
+lib/
+*.tsbuildinfo
+*.tsbuildinfo.*
+*.log
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# work-graph runtime artifacts (never commit)
+.dsh/
+
+# scratch
+.scratch/workgraph/scratch/

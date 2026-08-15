@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-14-workgraph-v4-adversarial-verifier-rounds.md
+2026-08-14-workgraph-v4-adversarial-verifier-rounds.md: b6e52af7b3fc0400ed0f27871c48597170ac328e
+2026-08-14-workgraph-v4-adversarial-verifier-rounds.zh.md: c13b23f0e6a18b9d059dd73bb48d73efca06cf8f

@@ -1,0 +1,24 @@
+# 05 — parallel batch: worktree isolation, merge-back, HEAD guard
+
+**What to build:** Parallel execution: when more than one node is Ready and the config concurrency exceeds 1, take a batch of Ready nodes up to the cap and run each as an independent worker/verifier pair (issue-04 mechanics per node). The seam extension lands here: `SubagentStartRequest` gains a capability-gated `workspace` override; each round-1 worker spawns with its workspace set to a per-node git worktree minted under the harness home (`workgraph/worktrees/<session>/<node>`) through the shell service, and resumed rounds keep it. Merge-back runs sequentially in batch order: a HEAD guard fails a node loudly if the main HEAD moved since fan-out; the changed set comes from git plumbing; each file merges 3-way over raw bytes (base = fan-out HEAD blob, ours = main working file, theirs = worktree file; base==ours takes theirs; ours==theirs is already present; else conflict). A conflict fails only that node (siblings continue, dependents block); a successful merge removes the worktree best-effort; a failed node keeps it for postmortem. Outside a git repo or with an incapable provider, the cap degrades to serial.
+
+**Blocked by:** 04 — adversarial verifier and bounded worker rounds
+
+**Status:** resolved
+
+- [x] A held-reply gate proves real concurrency: two independent roots run as separate children simultaneously, one worker plus one verifier per node, worktree isolation requested.
+- [x] The workspace override is capability-gated: an incapable provider or non-git repo degrades to serial without parallel spawn attempts.
+- [x] A real conflicting worktree fails the node naming the file; siblings continue; a moved main HEAD fails the node with the safety message; a clean batch lands both nodes' files via sequential 3-way merges and removes the worktrees; failed nodes keep theirs.
+- [x] A cancelled batch leaves no wedged nodes: orphaned Running nodes demote on resume.
+
+## Resolution
+
+**The seam extension ships in the subagent packages**: `SubagentStartRequest.workspace` (an absolute session-`cwd` override) is capability-gated through the optional `SubagentCapabilities.workspace` flag — a request naming it on an incapable provider is rejected `UNSUPPORTED_CAPABILITY`, never silently ignored — and the in-process driver honors it by overriding the child session's `cwd` in its creation meta (resumed continuation rounds keep it automatically, since the durable header carries it). The spawn provider advertises the capability. **`worktrees.ts`** mints detached worktrees at the fan-out HEAD under the harness home, computes the changed set from git plumbing (tracked diff plus untracked files), merges each file 3-way over raw bytes (base == ours takes theirs; ours == theirs is already present; otherwise conflict — the node fails naming the file), removes merged worktrees best-effort, and keeps failed nodes' worktrees for postmortem; the HEAD guard fails the node loudly when the main HEAD moved. **`parallel.ts`** drives the graph with batches where eligible (≥2 Ready nodes, cap > 1, workspace-capable composition, git repo — the probe degrades once to serial exactly like jxca's non-git clamp): each batch mints all worktrees at one fan-out baseline, runs every node's worker/verifier rounds with the workspace override (rounds 2+ continue the SAME child in its worktree), then merges back sequentially in batch order. A merge-back failure revokes the achievement through the new `settleMergeFailed` transition (the node fails with the precise reason, dependents block, a wedge blocks the graph — one bad merge never kills the graph); `settleAchieved` now re-checks the wedge when a late achievement strands the graph. The scheduler's drive uses the parallel path with the per-agent main directory (the agent's session cwd) and the config seams (`concurrency`, `workspaceCapable`, `git`).
+
+Coverage: 202 vitest tests green (51 new for this issue) at per-file 100% — the 3-way matrix, the merge orchestration over real temp dirs (take-theirs writes, already-present skips, conflicts fail naming the file, HEAD guard, untracked and deleted files), the production git seam, batch eligibility and degradation, workspace reach (worker rounds and verifiers), round 2 in-worktree continuation, pause during minting and during rounds, the merge-failure wedge, and the seam extension's capability gating with a real-stack child `cwd` assertion. Lint clean, host typecheck clean.
+
+## Notes
+
+- The workspace override is the only subagent seam extension (per ADR 0003); the continuation manager persists the child's `cwd` in its durable header, so resumed rounds keep the worktree automatically.
+- The `git` seam is injected (production = `node:child_process`); tests script plumbing with fakes over real directories.
+- Issue 06 wires discoveries and replan; issue 07 lands the command surface and config validation for `concurrency`.

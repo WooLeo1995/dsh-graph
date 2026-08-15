@@ -1,0 +1,16 @@
+# 01 — workgraph Service Definition, deterministic tracker, plan gate, persistence
+
+**What to build:** The `dsh-workgraph` Service Definition (vocabulary, `ctx.workGraph` service methods, `workgraph/*` observe-only emits) and the tracker core of `dsh-workgraph-scheduler`: a pure state machine over an immutable snapshot — node states Waiting/Ready/Running/Achieved/Failed/Blocked (Verifying display-only, never persisted; unknown persisted state restores Ready), Waiting→Ready when all Blocks deps are Achieved, fixed-point block_dependents (never demoting an Achieved dependent), wedge detection with a retry hint, retry resetting one node plus its transitive blocked chain with the UpstreamNotAchieved refusal, restore demotion (Active→user_paused, Running→Ready). The plan static gate runs its checks in the spec's order (parse, non-empty, dedupe deps, ≤ maxNodes, slug hygiene, uniqueness, non-empty fields, self/unknown deps, planner-order-stable Kahn acyclicity, canonical-id collision) and mints `gn-<fnv1a32(slug)>` ids; the harness appends `gn-final` depending on every planner node. Every transition checkpoints as a session event (SessionEventMap extension) with a capped history and an Unknown sink.
+
+**Blocked by:** —
+
+**Status:** resolved
+
+- [x] The transition table holds exhaustively: every legal transition triggers exactly from its spec cause; illegal ones throw.
+- [x] The gate rejects each invalid case with its precise reason, in order; fnv1a32 ids match vectors; `gn-final` is appended and gated over all planner nodes.
+- [x] `retry`, restore demotion, and wedge behavior match the spec; an already-Achieved dependent is never demoted.
+- [x] Session events reconstruct the tracker byte-for-byte; history caps at the configured bound and absorbs unknown event kinds.
+
+## Resolution
+
+Shipped as two packages under the new `workgraph/` group: `dsh-workgraph` (Service Definition — vocabulary, the `workgraph/change` whole-snapshot session event with strict decode/fold and continuity checks, the agent-scoped `workgraph/changed` emit, the `commitWorkGraphChange` checkpoint funnel (session append plus fused live emit), and the abstract `ctx.workGraph` engine surface) and `dsh-workgraph-scheduler` (tracker core — FNV-1a canonical ids with the reserved `gn-final`, the ordered plan gate with an injectable id mint, and the pure transitions `initializeGraph`/`markRunning`/`settleAchieved`/`settleFailed`/`retryNodes`/`restoreSnapshot` plus the capped `appendHistory`). Every change carries the whole snapshot (the whole-value rule), an unknown persisted node state decodes as `ready`, an unknown history kind decodes as `unknown` with the raw kind retained, and `KNOWN_SESSION_EVENT_TYPES` was regenerated to admit the event. Acceptance is gated by 57 vitest tests at per-file 100% coverage (transition table including illegal moves, gate ordering with each rejection reason, FNV vectors, retry/restore/wedge semantics including the upstream refusal and the never-demoted achieved dependent, event round-trip and continuity rejections). The design decisions are recorded in the [v1 Agent Note](../../.agents/notes/implemented/feature/2026-08-14-workgraph-v1-tracker-gate-persistence.md).
