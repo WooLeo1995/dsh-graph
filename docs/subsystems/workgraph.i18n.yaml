@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/workgraph.md
-workgraph.md: 8400fa65b600efa6e054069e03bd574dd88de7d3
-workgraph.zh.md: 8af53caa16256b6d27dd5f5fceb373ed9fa6ff57
+workgraph.md: d16c068464c91f8781533f972b65cb260fbcaaf5
+workgraph.zh.md: 1d18ad2cd418a978f42b9f2cd3141eb1bb1f65aa

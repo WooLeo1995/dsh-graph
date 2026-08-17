@@ -48,4 +48,4 @@
 
 ## 未决
 
-- 唯一遗留问题：`examples/web-cordis/cordis.yml` 未提交的 `cordis-host-runner` 删除行——恢复还是保留（phase-1 遗留，作者拍板）。
+- ~~唯一遗留问题：`examples/web-cordis/cordis.yml` 未提交的 `cordis-host-runner` 删除行——恢复还是保留（phase-1 遗留，作者拍板）。~~ **已关闭（2026-08-15）**：宿主 `examples/web-cordis/cordis.yml` 已提交且工作树干净，`cordis-host-runner` 行存在于 15–19 行，`git log -S` 仅一次 ADD、历史上从未删除、无 stash；镜像端 `examples/` 无 web-cordis（sync.sh 不同步 examples/）。条目为陈旧状态，无遗留问题。

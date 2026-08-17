@@ -6,6 +6,7 @@
  */
 
 export { canonicalNodeId, FINAL_NODE_ID, fnv1a32 } from './ids.ts'
+export { assemblePanelSnapshot } from './snapshot.ts'
 export type { ParsedPlanNode } from './gate.ts'
 export {
   buildFinalNode,

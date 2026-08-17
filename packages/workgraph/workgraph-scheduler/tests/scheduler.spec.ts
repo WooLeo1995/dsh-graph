@@ -436,12 +436,29 @@ describe('WorkGraphScheduler', () => {
       expect(resumed.status).toBe('complete')
     })
 
-    it('propagates a spawn transport failure when no pause intervened', async () => {
+    it('rejects a spawn transport failure and leaves the graph infra-paused, never undriven', async () => {
       const round: WorkerRound = async () => {
         throw new Error('transport boom')
       }
       const s = scheduler(scripted(VALID_ARTIFACT), round)
+      // The drive runs detached: the failure pauses the graph infra with the
+      // reason (never an active-but-undriven graph) and the blocking set
+      // still surfaces the loud rejection.
       await expect(s.set(agent, { objective: 'ship it' })).rejects.toThrow('transport boom')
+      const status = await s.status(agent)
+      expect(status!.status).toBe('infra_paused')
+      expect(status!.pauseReason).toContain('transport boom')
+    })
+
+    it('wraps a non-Error episode failure into an Error for the blocking caller', async () => {
+      const round: WorkerRound = async () => {
+        throw 'transport boom' as never
+      }
+      const s = scheduler(scripted(VALID_ARTIFACT), round)
+      await expect(s.set(agent, { objective: 'ship it' })).rejects.toThrow('transport boom')
+      const status = await s.status(agent)
+      expect(status!.status).toBe('infra_paused')
+      expect(status!.pauseReason).toContain('transport boom')
     })
 
     it('demotes the in-flight node when the spawn throws after a pause', async () => {
@@ -517,7 +534,7 @@ describe('WorkGraphScheduler', () => {
       )
     })
 
-    it('returns the planned snapshot when a clear lands during planning', async () => {
+    it('never installs a plan when a clear lands during planning (a cleared graph cannot resurrect)', async () => {
       let releasePlan!: (result: PlannerSpawnResult) => void
       const planGate = new Promise<PlannerSpawnResult>((resolve) => { releasePlan = resolve })
       const planner: PlannerSpawn = async () => planGate
@@ -526,11 +543,67 @@ describe('WorkGraphScheduler', () => {
       await new Promise<void>(resolve => setTimeout(resolve, 10))
       await s.clear(agent)
       releasePlan(VALID_ARTIFACT)
-      const snapshot = await pending
-      // The drive never dispatched (aborted before its first iteration), so
-      // set() falls back to the planned snapshot it holds.
-      expect(snapshot.status).toBe('active')
-      expect(snapshot.nodes).toHaveLength(3)
+      // The late planner result abandons its plan: the clear tombstone
+      // stands and the graph stays gone.
+      await expect(pending).rejects.toEqual(
+        new WorkGraphError('graph cleared mid-episode', 'WORKGRAPH_NOT_FOUND'),
+      )
+      expect(await s.status(agent)).toBeNull()
+    })
+
+    it('marks the node running at spawn, before the first worker round settles', async () => {
+      let release!: (result: WorkerRoundResult) => void
+      const gate = new Promise<WorkerRoundResult>((resolve) => { release = resolve })
+      const round: WorkerRound = async (request) => {
+        // Report the publication like the real transport does, then hold the
+        // round in flight.
+        await request.onSpawned?.('child-1')
+        return gate
+      }
+      const s = scheduler(scripted(VALID_ARTIFACT), round)
+      const pending = s.set(agent, { objective: 'ship it' })
+      // The plan installs and the first worker spawns; the running
+      // transition commits at spawn while the round is still in flight.
+      // Poll rather than sleep: under suite contention the install may take
+      // longer than a fixed delay (the round gate holds the node open).
+      const startedAt = Date.now()
+      let a: WorkGraphSnapshot['nodes'][number] | undefined
+      for (;;) {
+        // status() is null until the dispatch's pending commit lands; poll
+        // through that window too.
+        const live = await s.status(agent)
+        a = live?.nodes.find(entry => entry.id === canonicalNodeId('a'))
+        if (a !== undefined && a.state === 'running') break
+        if (Date.now() - startedAt > 5000) throw new Error('node never marked running at spawn')
+        await new Promise<void>(resolve => setTimeout(resolve, 5))
+      }
+      expect(a.state).toBe('running')
+      expect(a.childSessionId).toBe('child-1')
+      release(ROUND_DONE)
+      await pending
+    })
+
+    it('skips the spawn-time running commit when a pause lands before the publication callback', async () => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      const round: WorkerRound = async (request) => {
+        // The child publishes only after the pause aborted the episode: the
+        // spawn-time commit is skipped and the pause state stands as-is.
+        await gate
+        await request.onSpawned?.('child-1')
+        return ROUND_DONE
+      }
+      const s = scheduler(scripted(VALID_ARTIFACT), round)
+      const pending = s.set(agent, { objective: 'ship it' })
+      await new Promise<void>(resolve => setTimeout(resolve, 10))
+      const paused = await s.pause(agent, 'stop now')
+      expect(paused.status).toBe('user_paused')
+      release()
+      const final = await pending
+      expect(final.status).toBe('user_paused')
+      const a = final.nodes.find(node => node.id === canonicalNodeId('a'))!
+      expect(a.state).toBe('ready')
+      expect(a.childSessionId).toBeUndefined()
     })
   })
 
@@ -1200,6 +1273,18 @@ describe('WorkGraphScheduler', () => {
           'WORKGRAPH_RETRY_UPSTREAM_NOT_ACHIEVED',
         ),
       )
+    })
+
+    it('bare retryAll resets every failed chain as one union batch and completes', async () => {
+      agent.session.append('workgraph/change', {
+        kind: 'workgraph/change',
+        version: 1,
+        graph: failedChainSnapshot(),
+      })
+      const s = scheduler()
+      const snapshot = await s.retryAll(agent)
+      expect(snapshot.status).toBe('complete')
+      expect(snapshot.nodes.every(node => node.state === 'achieved')).toBe(true)
     })
 
     it('clears the graph with a durable tombstone', async () => {

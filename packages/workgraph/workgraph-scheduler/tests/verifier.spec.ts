@@ -90,7 +90,7 @@ describe('runVerifierEpisode', () => {
 })
 
 describe('renderVerifierPrompt', () => {
-  it('embeds the contract, summary, and the strict REPORT envelope contract', () => {
+  it('embeds the contract, summary, and the strict structured-verdict contract', () => {
     const prompt = renderVerifierPrompt({
       position: 1,
       total: 2,
@@ -99,7 +99,11 @@ describe('renderVerifierPrompt', () => {
       objective: 'ship it',
       summary: 'done',
     })
-    expect(prompt).toContain('REPORT:')
+    // The verdict travels through the structured-output capture (the spawn
+    // carries VERIFIER_OUTPUT_SCHEMA), so the prompt must NOT teach the
+    // worker-style text `REPORT:` envelope — a model that follows it skips
+    // the capture tool and the episode can never settle.
+    expect(prompt).not.toContain('REPORT:')
     expect(prompt).toContain('"verdict"')
     expect(prompt).toContain('gap-less rejection is itself rejected')
   })

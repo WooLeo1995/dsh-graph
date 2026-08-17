@@ -88,6 +88,10 @@ export interface DecodedGraphChange {
   readonly snapshot?: WorkGraphStateData
   /** The graph's history kinds at this change (start detection). */
   readonly historyKinds: readonly string[]
+  /** The graph's creation time, when the payload carries it (set-commit detection). */
+  readonly createdAt?: number
+  /** The graph's last-update time; every post-creation transition bumps it. */
+  readonly updatedAt?: number
 }
 
 const FINAL_NODE_ID = 'gn-final'
@@ -157,10 +161,14 @@ export function decodeGraphChange(data: WorkGraphChangeMeta | unknown): DecodedG
   const pendingDiscoveries = graphRecord['pendingDiscoveries']
   const tokenBudget = graphRecord['tokenBudget']
   const pauseReason = graphRecord['pauseReason']
+  const createdAt = graphRecord['createdAt']
+  const updatedAt = graphRecord['updatedAt']
   return {
     graphId: id,
     cleared: false,
     historyKinds,
+    ...(typeof createdAt === 'number' ? { createdAt } : {}),
+    ...(typeof updatedAt === 'number' ? { updatedAt } : {}),
     snapshot: {
       objective,
       status: status as WorkGraphStatus,
@@ -174,10 +182,33 @@ export function decodeGraphChange(data: WorkGraphChangeMeta | unknown): DecodedG
   }
 }
 
-/** The first durable change of a graph: the set commit with `created` history. */
+/**
+ * Whether this change is the graph's first durable change (the set commit).
+ * The essential discriminant is the creation fact: every transition in the
+ * scheduler bumps `updatedAt`, so `createdAt === updatedAt` holds exactly on
+ * the set commit — regardless of `historyMax` truncation. Payloads without
+ * `createdAt`/`updatedAt` (older records) fall back to the history shapes: a
+ * graph's history begins with `['created']`, and the scheduler's dispatchSet
+ * path also commits `planning-started` together with `created`, so the real
+ * first change's history is `['created','planning-started']`. Both shapes
+ * are the unique start: `created` is appended exactly once per graph, every
+ * later change appends at least one further kind (planning-completed,
+ * node-started, ...), and the history cap evicts only from the head — so no
+ * later event ever carries exactly `['created']` or
+ * `['created','planning-started']`. A second start is therefore impossible
+ * (the fold engine rejects it) and the real first shape is never missed.
+ */
 export function isGraphStartChange(decoded: DecodedGraphChange): boolean {
   if (decoded.cleared || decoded.snapshot === undefined) return false
-  return decoded.historyKinds.length === 1 && decoded.historyKinds[0] === 'created'
+  if (decoded.createdAt !== undefined && decoded.updatedAt !== undefined) {
+    // Creation-fact discriminant: createdAt === updatedAt only on the set
+    // commit, because every later transition bumps updatedAt.
+    return decoded.createdAt === decoded.updatedAt
+  }
+  // Older payloads without timestamps: history-shape fallback (both shapes).
+  const kinds = decoded.historyKinds
+  return (kinds.length === 1 && kinds[0] === 'created')
+    || (kinds.length === 2 && kinds[0] === 'created' && kinds[1] === 'planning-started')
 }
 
 /**
@@ -237,8 +268,10 @@ export const workgraphDefinition: ConversationNodeDefinition<WorkGraphState> = {
     if (decoded === null) return null
     return {
       id: decoded.graphId,
-      // Exactly one start per graph: the first durable change is the set
-      // commit, recognizable by its single `created` history entry.
+      // Exactly one start per graph: the set commit is the creation fact
+      // (createdAt === updatedAt); payloads without timestamps fall back to
+      // the `created`-headed history shapes. Every later transition bumps
+      // updatedAt, so no later event can match a start again.
       role: isGraphStartChange(decoded) ? 'start' : 'update',
     }
   },

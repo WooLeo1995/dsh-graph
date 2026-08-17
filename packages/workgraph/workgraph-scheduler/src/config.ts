@@ -114,8 +114,16 @@ export function resolveWorkGraphConfig(tunables: Partial<WorkGraphConfig>): Reso
   if (!Number.isInteger(planBytesMax) || planBytesMax < 1) {
     throw new TypeError(`workgraph.planBytesMax must be a positive integer, got ${planBytesMax}`)
   }
-  if (!Number.isFinite(childAwaitBudget) || childAwaitBudget <= 0) {
-    throw new TypeError(`workgraph.childAwaitBudget must be positive seconds, got ${childAwaitBudget}`)
+  // The direct-construction path enforces the documented 1–3600 clamp's
+  // UPPER bound loudly (a pause that waits hours is a silent misconfig).
+  // Sub-1-second values stay accepted here as the bounded-settlement test
+  // seam's fast-settle accommodation; the cordis schema enforces the full
+  // integer 1–3600 contract at plugin load.
+  if (!Number.isFinite(childAwaitBudget) || childAwaitBudget <= 0
+    || childAwaitBudget > CHILD_AWAIT_BUDGET_CLAMP.max) {
+    throw new TypeError(
+      `workgraph.childAwaitBudget must be positive seconds within 1–${CHILD_AWAIT_BUDGET_CLAMP.max}, got ${childAwaitBudget}`,
+    )
   }
   return {
     concurrency,

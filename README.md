@@ -35,6 +35,8 @@ Per-package test gates (per-file 100% coverage, i18n trio records, staged lint) 
 /graph <objective> [--budget <tokens>] | status | show | pause | resume [--budget <tokens>] | retry [node] | clear
 ```
 
+`set`, `resume`, and `retry` **dispatch and return immediately**: the graph is planned and driven in the background by the scheduler, so the command never blocks the conversation channel for the graph's whole lifetime. Progress is observed through `/graph status`, `/graph show`, the repository projection (`.dsh/graph.jsonl`), and the Web Client live DAG view; `pause` still waits for bounded child settlement. A failed planning episode or drive pauses the graph as `infra_paused` with the reason — the graph is never left active with no driver.
+
 ## Local installation (trial)
 
 1. Build the scheduler and the client bundle in the host checkout (the workgraph packages' `lib/` must be fresh):

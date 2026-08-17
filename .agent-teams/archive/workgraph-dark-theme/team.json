@@ -1,0 +1,55 @@
+{
+  "name": "workgraph-dark-theme",
+  "id": "workgraph-dark-theme",
+  "description": "修复 workgraph UI 深色主题适配:卡片 WorkGraphNode.module.css 的虚构 --dsh-color-* token 与面板 ActivityPanel.module.css 桥接块的不存在别名,全部映射到宿主真实主题 token(design-platform.css 的 --dsw-alias-*),并加静态审计回归测试",
+  "captainSessionId": "session-35ed6cc7-fcfb-48b6-a8dc-c18e4aa18ffb",
+  "createdAt": 1786947900431,
+  "members": [
+    {
+      "id": "406ad05c-aa64-4bed-9fa9-bfffeb3d34b9",
+      "name": "researcher",
+      "role": "researcher",
+      "joinedAt": 1786947906094,
+      "status": "idle"
+    },
+    {
+      "id": "c1c60474-e0b3-4a3e-a9b9-612bef96e653",
+      "name": "engineer",
+      "role": "engineer",
+      "joinedAt": 1786947906104,
+      "status": "idle"
+    },
+    {
+      "id": "da86fba4-adad-45f7-abdc-df59fa1082e5",
+      "name": "reviewer",
+      "role": "reviewer",
+      "joinedAt": 1786947906121,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "CSS token 静态审计回归测试(红)",
+      "description": "写深色主题适配的静态审计回归测试(先红):读取 WorkGraphNode.module.css 与 ActivityPanel.module.css 源码,断言①无 --dsh-color- 引用②所有 var(--dsw-alias-X) 的 X 在真实 token 允许清单内③无 --dsw-static-* 直接引用④裸色值仅允许作为 var() fallback。允许清单以宿主 design-platform.css 为准(见简报)。",
+      "status": "completed",
+      "assignee": "researcher",
+      "dependencies": [],
+      "createdAt": 1786947911978,
+      "updatedAt": 1786948204140,
+      "output": "CSS token 静态审计回归测试完成(队长实施:三名成员子代理就绪阶段全部失败,队长直接执行)。\n\n新增 tests/css-theme.client.spec.ts(3 用例):读取 WorkGraphNode.module.css 与 ActivityPanel.module.css 源码,断言①无 --dsh-color-* 引用(虚构 token)②所有 var(--dsw-alias-X) 的 X 在宿主 design-platform.css 的 78 个真实 alias 允许清单内③无 --dsw-static-* 直接引用(静态浅色)④裸色值仅允许作为 var() fallback。\n\n红绿验证:修复前 2/3 失败(卡片 36 处 --dsh-color-*、面板桥接块 4 处 --dsw-static-*),修复后 3/3 绿。"
+    },
+    {
+      "id": "t2",
+      "subject": "CSS 深色主题 token 映射修复",
+      "description": "修复两处 CSS 的深色主题适配(队长实施):①WorkGraphNode.module.css 全部 36 处虚构 --dsh-color-* 映射到真实 --dsw-alias-*(surface→bg-layer-1/border→border-l1/text→label-primary/muted→label-tertiary/bg-muted→bg-layer-2/primary→state-business-primary/success-warning-error→state-*-primary/soft→state-*-tertiary,error-soft 用 color-mix 12% tint)②ActivityPanel.module.css 删除桥接块(含 4 处 --dsw-static-* 静态浅色)并把 12 个虚构别名使用点替换为真实 token(line-normal→border-l1、line-strong→border-l2、bg-module→bg-layer-1、bg-fill-neutral→bg-layer-2、bg-fill-*/state-success/warning/danger→state-*-primary、label-on-fill→label-primary-inverted)。验证:101/101 测试绿(含新审计测试 3 个)、覆盖 100%、tsc/lint 干净、bundle 重建后 dsh-color/dsw-static 归零。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786948211016,
+      "updatedAt": 1786948237436,
+      "output": "修复完成(队长实施)。\n\n①WorkGraphNode.module.css:36 处 --dsh-color-* 全部映射到真实 --dsw-alias-*(surface→bg-layer-1、border→border-l1、text→label-primary、text-muted→label-tertiary、bg-muted→bg-layer-2、primary→state-business-primary、success→state-success-primary、warning→state-warn-primary、error→state-error-primary、success-soft→state-success-tertiary、warning-soft→state-warn-tertiary、primary-soft→state-business-tertiary、error-soft→color-mix(error-primary 12%, bg-layer-1),因主题无 error-tertiary)。\n\n②ActivityPanel.module.css:删除桥接块(含 4 处 --dsw-static-* 静态浅色与 12 个虚构别名定义),所有使用点直接替换为真实 token(line-normal→border-l1、line-strong→border-l2、bg-module→bg-layer-1(避开 bg-module-platform)、bg-fill-neutral→bg-layer-2、bg-fill-business→state-business-primary、bg-fill-success→state-success-primary、bg-fill-warning→state-warn-primary、bg-fill-danger→state-error-primary、state-success/warning/danger→state-*-primary、label-on-fill→label-primary-inverted)。\n\n验证:101/101 测试绿(含新审计测试);src 覆盖 100/100/100/100;tsc exit 0;oxlint 0 错误;bundle 重建(82.5KB,14:29)后 grep 确认 dsh-color=0、dsw-static=0、dsw-alias-border-l1=2。"
+    }
+  ],
+  "taskSeq": 2
+}

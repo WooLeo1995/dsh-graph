@@ -247,6 +247,18 @@ describe('scheduler project wiring', () => {
     expect(settled.status).toBe('complete')
   })
 
+  it('degrades when the dispatch-time projection write fails', async () => {
+    // The projection path is squatted BEFORE set: the dispatch-time write
+    // degrades with a warning like every checkpoint write, and the graph
+    // still runs to completion on the session log.
+    const s = scheduler(dir)
+    const agent = stubAgent('owner', mainDir)
+    await mkdir(projectPaths(mainDir).dir, { recursive: true })
+    await mkdir(projectPaths(mainDir).file)
+    const settled = await s.set(agent, { objective: 'ship it' })
+    expect(settled.status).toBe('complete')
+  })
+
   it('treats a malformed projection as a loud error on status', async () => {
     const s = scheduler(dir)
     const agent = stubAgent('owner', mainDir)

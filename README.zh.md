@@ -35,6 +35,8 @@ CONTEXT.md                 设计 grilling 中确立的领域词汇表
 /graph <objective> [--budget <tokens>] | status | show | pause | resume [--budget <tokens>] | retry [node] | clear
 ```
 
+`set`、`resume`、`retry` **派发后立即返回**:图由调度器在后台规划并驱动,命令通道不会为图的整个生命周期阻塞。进度通过 `/graph status`、`/graph show`、仓库投影(`.dsh/graph.jsonl`)与 Web 客户端活 DAG 视图观察;`pause` 仍等待有界子代理结算。规划或驱动失败时图以 `infra_paused` 暂停并携带原因——图绝不会"active 却无人驱动"。
+
 ## 本机安装(试用)
 
 1. 在宿主 checkout 中构建调度器与客户端 bundle(workgraph 各包的 `lib/` 须为最新):

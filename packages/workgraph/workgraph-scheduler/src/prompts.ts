@@ -118,17 +118,24 @@ Be strict but fair: judge ONLY this node's contract, not sibling nodes' scope an
 
 ## Output contract — STRICT
 
-End your final message with EXACTLY one line carrying your verdict as a single-line JSON object (no markdown fence, no other text on that line):
+Report exactly one structured result with EXACTLY this shape (no comments, no extra keys):
 
-REPORT: {"verdict":"achieved","gaps":[],"discovered":[]}
+{
+  "verdict": "achieved",
+  "gaps": [],
+  "discovered": []
+}
 
 or, when the contract does not observably hold:
 
-REPORT: {"verdict":"not_achieved","gaps":["one concrete, actionable gap per line"],"discovered":[]}
+{
+  "verdict": "not_achieved",
+  "gaps": ["one concrete, actionable gap per line"],
+  "discovered": []
+}
 
 - "verdict" is "achieved" only when every part of the node contract observably holds. A rejection MUST carry at least one concrete gap in "gaps"; a gap-less rejection is itself rejected.
-- "discovered" lists necessary out-of-scope work ONLY; empty ([]) when there is none.
-- The line must be valid JSON: the harness parses it strictly and an unparseable verdict never passes.`
+- "discovered" lists necessary out-of-scope work ONLY; empty ([]) when there is none.`
 
 /**
  * Render the verifier prompt for one node check.

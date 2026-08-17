@@ -3,7 +3,7 @@ import { defineConfig } from 'tsdown'
 /** Build the package root as an independent bundle. */
 export default defineConfig([
   {
-    entry: ['lib/types/index.js'],
+    entry: ['lib/types/index.js', 'lib/types/invariant.js'],
     outDir: 'lib',
     format: ['esm'],
     platform: 'node',

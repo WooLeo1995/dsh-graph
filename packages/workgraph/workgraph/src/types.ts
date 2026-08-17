@@ -142,3 +142,40 @@ export interface SetWorkGraphRequest {
 export interface ResumeWorkGraphRequest {
   readonly budget?: number
 }
+
+/**
+ * One node row of the activity-panel snapshot (host-assembled, client
+ * rendered). A projection of {@link WorkNode} plus the longest dependency
+ * chain depth, free of live objects so it can cross the JSON route.
+ */
+export interface WorkGraphPanelNode {
+  readonly id: WorkNodeId
+  readonly title: string
+  readonly state: WorkNodeState
+  readonly rounds: number
+  readonly blocks: readonly WorkNodeId[]
+  /** Longest dependency chain depth (column index for the panel DAG). */
+  readonly depth: number
+  /** Whether this is the harness-appended final verification node. */
+  readonly final: boolean
+  /** Present exactly while `state` is `failed`. */
+  readonly failure?: string
+}
+
+/**
+ * The activity-panel snapshot for one graph, assembled on request from the
+ * scheduler's live view. Carries the owning session id so the panel can
+ * filter to the current session's graph.
+ */
+export interface WorkGraphPanelSnapshot {
+  readonly sessionId: string
+  readonly graphId: WorkGraphId
+  readonly objective: string
+  readonly status: WorkGraphStatus
+  readonly planVersion: number
+  readonly tokensSpent: number
+  readonly tokenBudget?: number
+  readonly pauseReason?: string
+  readonly pendingDiscoveries: number
+  readonly nodes: readonly WorkGraphPanelNode[]
+}

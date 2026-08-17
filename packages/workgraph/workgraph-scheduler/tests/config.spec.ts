@@ -55,6 +55,12 @@ describe('work graph config', () => {
     expect(() => resolveWorkGraphConfig({ historyMax: 1.5 })).toThrow('workgraph.historyMax')
     expect(() => resolveWorkGraphConfig({ planBytesMax: 0 })).toThrow('workgraph.planBytesMax')
     expect(() => resolveWorkGraphConfig({ childAwaitBudget: 0 })).toThrow('workgraph.childAwaitBudget')
+    // The documented upper clamp holds at direct construction too: a pause
+    // that waits past an hour is a silent misconfig. Sub-1-second values
+    // remain the bounded-settlement test seam's fast-settle accommodation.
+    expect(() => resolveWorkGraphConfig({ childAwaitBudget: 3601 })).toThrow('workgraph.childAwaitBudget')
+    expect(() => resolveWorkGraphConfig({ childAwaitBudget: 3600.5 })).toThrow('workgraph.childAwaitBudget')
+    expect(() => resolveWorkGraphConfig({ childAwaitBudget: 3600 })).not.toThrow()
   })
 
   it('enforces the documented clamps at the cordis load boundary', () => {

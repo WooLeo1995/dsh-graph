@@ -53,6 +53,15 @@ export interface WorkerRoundRequest {
   readonly childSessionId?: string
   /** Absolute workspace (session `cwd`) for the child, e.g. a worktree. */
   readonly workspace?: string
+  /**
+   * Round-1 only: invoked when the child is published, BEFORE its epoch is
+   * awaited. The caller commits the node's running transition here so the
+   * durable state and projection show `running` while the worker actually
+   * works (a worker round lasts minutes; the old post-round commit hid it).
+   * A transport that never reports the publication may omit the call; the
+   * caller then falls back to the post-round transition.
+   */
+  readonly onSpawned?: (childSessionId: string) => void | Promise<void>
 }
 
 /** The settled round: the parsed outcome and the durable child identity. */
@@ -154,7 +163,7 @@ export function awaitChildEpoch(
  * @returns the round seam.
  */
 export function continuationWorkerRound(ctx: Context, agent: Agent): WorkerRound {
-  return async ({ prompt, signal, round, childSessionId, workspace }) => {
+  return async ({ prompt, signal, round, childSessionId, workspace, onSpawned }) => {
     if (round === 1) {
       const { childId } = await ctx.subagents.startContinuable({
         provider: 'spawn',
@@ -167,7 +176,14 @@ export function continuationWorkerRound(ctx: Context, agent: Agent): WorkerRound
         },
         signal,
       })
-      const { text, stopReason } = await awaitChildEpoch(ctx, childId, signal)
+      // The epoch listener attaches BEFORE the caller's spawn callback runs
+      // (which commits the running transition and may take a while), so a
+      // fast-settling child can never end before its epoch is observed.
+      const epoch = awaitChildEpoch(ctx, childId, signal)
+      // The node is running as soon as its child is published; the caller
+      // commits the transition before this round's long epoch is awaited.
+      await onSpawned?.(childId)
+      const { text, stopReason } = await epoch
       const outcome = stopReason === 'completed'
         ? parseReportEnvelope(text)
         : { kind: 'fail-closed' as const, reason: `worker child ended with stop reason "${stopReason}"` }

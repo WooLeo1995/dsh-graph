@@ -64,31 +64,44 @@ export async function runNodeRounds(
   })
 
   let first
+  let running: WorkGraphSnapshot | undefined
   try {
     first = await hooks.workerRound({
       prompt: roundPrompt([]),
       signal: hooks.signal(),
       round: 1,
       ...(workspace === undefined ? {} : { workspace }),
+      onSpawned: async (childSessionId) => {
+        // The child is published: commit the running transition NOW so the
+        // durable state and projection show `running` while the worker works,
+        // not only after its (minutes-long) first round settles. An abort
+        // that landed mid-spawn leaves the transition to the pause itself.
+        if (hooks.aborted()) return
+        running = markRunning(snapshot, node.id, hooks.limits, hooks.now(), childSessionId)
+        await hooks.commit(running)
+      },
     })
   } catch (error) {
     // A transport failure is an episode failure, unless it was the abort
     // signal firing mid-start — that is a resource stop, not a verdict.
-    if (hooks.aborted()) return { snapshot: hooks.current(), achieved: false }
+    if (hooks.aborted()) return { snapshot: await demoteIfRunning(hooks.current(), node.id, hooks), achieved: false }
     throw error
   }
   if (hooks.aborted()) {
-    // The pause landed while the spawn was in flight: nothing was committed
-    // for this node, so the authoritative (paused) snapshot stands as-is.
-    return { snapshot: hooks.current(), achieved: false }
+    // The pause landed while the spawn was in flight: the authoritative
+    // (paused) snapshot stands as-is, except that a running transition
+    // committed at spawn must demote (a resource stop, never a verdict).
+    return { snapshot: await demoteIfRunning(hooks.current(), node.id, hooks), achieved: false }
   }
   const state: NodeEpisodeState = {
     discoveries: [],
     round: 1,
     childSessionId: first.childSessionId,
   }
-  let current = markRunning(snapshot, node.id, hooks.limits, hooks.now(), first.childSessionId)
-  await hooks.commit(current)
+  // The running transition commits at spawn on transports that report the
+  // publication; scripted seams fall back to the post-round transition.
+  let current = running ?? markRunning(snapshot, node.id, hooks.limits, hooks.now(), first.childSessionId)
+  if (running === undefined) await hooks.commit(current)
   let outcome = first.outcome
   for (;;) {
     if (outcome.kind !== 'done') {
@@ -230,4 +243,24 @@ async function settleNodeFailure(
   const settled = settleFailed(snapshot, nodeId, reason, usage.tokens, state.round, hooks.limits, hooks.now())
   await hooks.commit(settled)
   return settled
+}
+
+/**
+ * Demote a node whose running transition committed at spawn when an abort
+ * lands mid-round, and commit the demote (a resource stop, never a verdict).
+ * Transports that never reported the publication — and graphs whose plan was
+ * abandoned mid-planning — leave no running state, so the authoritative
+ * snapshot stands as-is without an extra commit.
+ */
+async function demoteIfRunning(
+  snapshot: WorkGraphSnapshot,
+  nodeId: WorkNodeId,
+  hooks: SerialDriverHooks,
+): Promise<WorkGraphSnapshot> {
+  const node = snapshot.nodes.find(entry => entry.id === nodeId)
+  /* v8 ignore next 3 -- a round in flight implies the installed plan; a cleared graph makes hooks.current() throw before this helper runs */
+  if (node === undefined || node.state !== 'running') return snapshot
+  const demoted = demoteRunningToReady(snapshot, nodeId, hooks.limits, hooks.now())
+  await hooks.commit(demoted)
+  return demoted
 }

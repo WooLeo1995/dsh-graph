@@ -1,0 +1,88 @@
+{
+  "name": "invariant-entry-verify",
+  "id": "invariant-entry-verify",
+  "description": "核实审计发现的两个问题是否真实存在：(1) workgraph 与 workgraph-scheduler 的 package-local tsdown.config.ts 只打包 lib/types/index.js，从不产出 lib/invariant.js，但 package.json 声明了 exports[\"./invariant\"] -> lib/invariant.js 且 files 含该文件；(2) 两包 files 数组重复列出 lib/invariant.js。同时确认根 tsdown 默认配置、兄弟包（command-workgraph / ui-workgraph）机制对比，以及仓库内是否有消费方 import ./invariant。",
+  "captainSessionId": "session-8a404edb-a316-4abf-9bc4-5bcea23d1665",
+  "createdAt": 1786876158107,
+  "members": [
+    {
+      "id": "cd233aba-cf73-4007-9e16-6391123d1dfb",
+      "name": "audit-wg",
+      "role": "engineer",
+      "joinedAt": 1786876160259,
+      "status": "idle"
+    },
+    {
+      "id": "72b08703-8ca1-4cc1-8ed0-faabc33af288",
+      "name": "audit-sched",
+      "role": "engineer",
+      "joinedAt": 1786876160272,
+      "status": "idle"
+    },
+    {
+      "id": "4f236fdc-35be-4240-a6a7-429d23edeec7",
+      "name": "root-check",
+      "role": "researcher",
+      "joinedAt": 1786876160292,
+      "status": "idle"
+    },
+    {
+      "id": "55316254-8bad-40a0-8a78-93a6461527de",
+      "name": "final-review",
+      "role": "reviewer",
+      "joinedAt": 1786876160310,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "核验 @deepseek-ai/dsh-workgraph 包的 invariant 入口",
+      "description": "工作目录: /Users/wutianyu/Downloads/company/ca/gitlab/dsh-graph。审计包 packages/workgraph/workgraph（@deepseek-ai/dsh-workgraph）。用 read/grep/glob 工具（不要用 shell cat）核验以下事实，逐条给出证据（文件路径+行号+内容摘录）:\n1. package.json 的 exports 是否声明 \"./invariant\" -> {types: lib/types/invariant.d.ts, require/default: lib/invariant.js}，files 数组是否列出 lib/invariant.js，且列出几次（是否重复两次）。\n2. 是否存在 package-local tsdown.config.ts，其 entry 是否只有 ['lib/types/index.js']（不含 invariant）。\n3. src/invariant.ts 是否存在。\n4. 该包内 src/ 下是否有代码 import/export 自 './invariant' 或 '../invariant' 等指向 invariant 的引用。\n5. 检查 .gitignore/.npmignore/sync.sh 等是否解释 lib/ 缺失（预期: sync.sh 排除 lib，本 checkout 无 lib/ 是正常的，不要把它当问题）。\n输出: 每条事实的 YES/NO + 证据，以及\"问题1（tsdown 缺 invariant 入口）\"和\"问题2（files 重复项）\"是否成立的结论。",
+      "status": "completed",
+      "assignee": "audit-wg",
+      "dependencies": [],
+      "createdAt": 1786876171106,
+      "updatedAt": 1786876359899,
+      "output": "t1 完成：核验 @deepseek-ai/dsh-workgraph 包 invariant 入口，两问题均成立（证据均为镜像+host 双份核对，host 为实际构建地 /Users/wutianyu/Downloads/project/github/deepseek-harness）。\n\n【逐条事实 + 证据】\n\nF1 声明 exports[\"./invariant\"]：YES\npackages/workgraph/workgraph/package.json L27-30：\"./invariant\": { \"types\": \"./lib/types/invariant.d.ts\", \"default\": \"./lib/invariant.js\" }（host 同名文件 L27-30 相同）。\n\nF2 files 重复列出 lib/invariant.js：YES\npackage.json L32-38 files=[\"lib/index.js\",\"lib/invariant.js\"(L34),\"lib/types/**/*.js\",\"lib/types/**/*.d.ts\",\"lib/invariant.js\"(L37)]。L34 与 L37 完全重复（host 相同）。\n\nF3 package-local tsdown.config.ts 只打包 lib/types/index.js：YES\ntsdown.config.ts L6 entry: ['lib/types/index.js']，唯一配置块，无 invariant entry（host 相同）。有效性：tsdown v0.22.2 resolveWorkspace 对每个 workspace 包 loadConfigFile 读本地配置后 mergeConfig(normalized, config)=defu(config, normalized)，defu 首参优先且数组整体替换 → 本地 entry 覆盖根配置 entry ['lib/types/{index,invariant,startup}.js']（根配置 tsdown.config.ts L20 本含 invariant，证明是本地配置把 invariant 挤掉了）。\n\nF4 lib/invariant.js 从不被产出：YES（关键实证）\nhost 构建产物 packages/workgraph/workgraph/lib/ 仅含 {index.js, tsconfig.tsbuildinfo, types/}，无 invariant.js。构建链 tsc -b tsconfig.host.json && tsdown（根 package.json build:lib:host）：tsc(outDir lib/types, tsconfig.json L5) 产出 lib/types/invariant.js + invariant.d.ts（host lib/types/ 中确实存在），tsdown 仅产出 lib/index.js。→ exports[\"./invariant\"].default 指向的 lib/invariant.js 无任何构建步骤产出；types 条件可解析，default 条件运行期必然 ENOENT。\n\nF5 src/invariant.ts 存在：YES\nsrc/invariant.ts（30 行）导出 name='workgraph-invariant'、inject=['invariants']、apply()（ctx.invariants.register）。\n\nF6 包内 invariant 引用：仅自引用/元数据，无消费方\ngrep invariant 于包内仅命中 src/invariant.ts 自身、package.json、README.md L39（散文 \"No stream invariant\"）。tests/（commit.spec.ts、fold.spec.ts）无引用。\n\nF7 lib/ 缺失系 sync.sh 排除所致：YES\nsync.sh L14 EXCLUDES=(--exclude lib --exclude node_modules --exclude .dsh --exclude '*.tsbuildinfo')；L7-8 注释明言排除构建产物 lib/，构建在 host。另 .gitignore L3 忽略 lib/；本镜像 find packages -type d -name lib 无结果。\n\n仓库级消费方：无\n镜像与 host 全仓 grep \"workgraph/invariant\" 仅命中三个包的 src/invariant.ts 内 @module 文档注释（workgraph/command-workgraph/ui-workgraph）；无任何 `import ... from '.../invariant'`。\n\n【结论】问题(1)成立：./invariant 的 default 指向 lib/invariant.js，但该文件从未被产出（tsdown 只产 lib/index.js；tsc 只产 lib/types/invariant.js）→ 运行期 import @deepseek-ai/dsh-workgraph/invariant 必失败。问题(2)成立：files 重复列出 lib/invariant.js（L34/L37）。\n机制对比（供 t3/final-review）：command-workgraph 无本地 tsdown 配置 → 继承根 glob，host lib/ 有 invariant.js；ui-workgraph 本地配置显式含 'lib/types/invariant.js'，host lib/ 有 invariant.js；workgraph 与 workgraph-scheduler 本地配置均只含 index.js，host lib/ 均无 invariant.js。修复方向：本地配置 entry 加 'lib/types/invariant.js'（或 exports default 改指 ./lib/types/invariant.js）。"
+    },
+    {
+      "id": "t2",
+      "subject": "核验 @deepseek-ai/dsh-workgraph-scheduler 包的 invariant 入口",
+      "description": "工作目录: /Users/wutianyu/Downloads/company/ca/gitlab/dsh-graph。审计包 packages/workgraph/workgraph-scheduler（@deepseek-ai/dsh-workgraph-scheduler）。用 read/grep/glob 工具（不要用 shell cat）核验以下事实，逐条给出证据（文件路径+行号+内容摘录）:\n1. package.json 的 exports 是否声明 \"./invariant\" -> {types: lib/types/invariant.d.ts, require/default: lib/invariant.js}，files 数组是否列出 lib/invariant.js，且列出几次（是否重复两次）。\n2. 是否存在 package-local tsdown.config.ts，其 entry 是否只有 ['lib/types/index.js']（不含 invariant）。\n3. src/invariant.ts 是否存在。\n4. 该包内 src/ 下是否有代码 import/export 自 './invariant' 或 '../invariant' 等指向 invariant 的引用。\n5. 检查 .gitignore/.npmignore/sync.sh 等是否解释 lib/ 缺失（预期: sync.sh 排除 lib，本 checkout 无 lib/ 是正常的，不要把它当问题）。\n输出: 每条事实的 YES/NO + 证据，以及\"问题1（tsdown 缺 invariant 入口）\"和\"问题2（files 重复项）\"是否成立的结论。",
+      "status": "completed",
+      "assignee": "audit-sched",
+      "dependencies": [],
+      "createdAt": 1786876171113,
+      "updatedAt": 1786876241944,
+      "output": "t2 完成：@deepseek-ai/dsh-workgraph-scheduler 的 invariant 入口核验。逐条事实（路径:行号 — 证据摘录）：\n\n1. exports[\"./invariant\"] 声明 lib/invariant.js — YES。packages/workgraph/workgraph-scheduler/package.json:23-26 `\"./invariant\": { \"types\": \"./lib/types/invariant.d.ts\", \"default\": \"./lib/invariant.js\" }`。\n2. files 数组重复列出 lib/invariant.js — YES（问题2成立）。package.json:28-33 `[\"lib/index.js\", \"lib/invariant.js\", \"lib/types/**/*.d.ts\", \"lib/invariant.js\"]` — 第30行与第32行重复。\n3. src/invariant.ts 存在 — YES。packages/workgraph/workgraph-scheduler/src/invariant.ts（30行），导出 name='workgraph-scheduler-invariant'、inject=['invariants']、apply 注册 ctx.invariants.register(PACKAGE_NAME, install)。\n4. package-local tsdown.config.ts 只打包 lib/types/index.js — YES（问题1前提成立）。tsdown.config.ts:4-14 `entry: ['lib/types/index.js'], outDir: 'lib', format: ['esm'], dts: false`，无任何 invariant entry。\n5. lib/invariant.js 从不产出 — YES（在宿主真实构建目录实证）。宿主 /Users/wutianyu/Downloads/project/github/deepseek-harness/packages/workgraph/workgraph-scheduler/lib/ 顶层仅有 index.js、tsconfig.tsbuildinfo、types/，无 invariant.js；tsc 产物 lib/types/invariant.js + .d.ts 存在（tsconfig.json:4-6 rootDir src → outDir lib/types），但 tsdown 从不将其打包到 lib/invariant.js。故 exports[\"./invariant\"].default 指向悬空文件（types 子路径可解析，运行时 import 会失败）。\n6. lib/ 缺失是 sync.sh 排除所致 — YES。sync.sh:14 `EXCLUDES=(--exclude lib --exclude node_modules --exclude .dsh --exclude '*.tsbuildinfo')`；sync.sh:7-8 注释明言排除构建产物、构建/测试发生在宿主；.gitignore:3 `lib/`；镜像包目录 glob 无任何 lib/** 文件。\n7. 包内无对 invariant 模块的 import — YES。全包 grep 'invariant'（19处）均为注释/自身/package.json 声明，src/ 内 `from './invariant'` 或包子路径 import 零匹配。\n8. 镜像与宿主 package.json / tsdown.config.ts / tsconfig.json diff 全部 IDENTICAL；包无 scripts 字段（构建由仓库级编排，属 t3 范围）。\n\n结论：问题(1) 在 workgraph-scheduler 上成立（tsdown 从不产出 lib/invariant.js，exports[\"./invariant\"] 悬空，files 声明了不存在的文件）；问题(2) 成立（files 中 lib/invariant.js 重复两次）。修复方向：将 exports[\"./invariant\"] 指向 ./lib/types/invariant.js，或把 invariant 加入 tsdown entry 打包为顶层 lib/invariant.js。"
+    },
+    {
+      "id": "t3",
+      "subject": "核验根配置默认项、兄弟包机制与仓库内消费方",
+      "description": "工作目录: /Users/wutianyu/Downloads/company/ca/gitlab/dsh-graph。用 read/grep/glob 工具（不要用 shell cat）核验:\n1. 根 tsdown.config.ts 的 entry 默认值是否为 ['lib/types/index.js', 'lib/types/invariant.js', 'lib/types/startup.js']（即包含 invariant）。\n2. 对比包 packages/workgraph/command-workgraph 与 packages/client/ui-workgraph: 确认它们没有 package-local tsdown.config.ts（从而继承根默认），并确认它们的 package.json 也声明 \"./invariant\" -> lib/invariant.js（机制对照组）。\n3. 在仓库范围内 grep 是否有任何代码 import '@deepseek-ai/dsh-workgraph/invariant'、'@deepseek-ai/dsh-workgraph-scheduler/invariant' 或类似 ./invariant 子路径消费方（node_modules 除外）。\n4. 确认 sync.sh 是否真的 --exclude lib（解释本 checkout 无 lib/ 的原因）。\n输出: 每条事实 YES/NO + 证据（文件路径+行号+内容摘录），以及\"根配置确实包含 invariant 入口（证明两包本地配置是缺口）\"和\"仓库内无 ./invariant 消费方（潜在问题而非现有破坏）\"是否成立的结论。",
+      "status": "completed",
+      "assignee": "root-check",
+      "dependencies": [],
+      "createdAt": 1786876171120,
+      "updatedAt": 1786876544611,
+      "output": "t3 完成（root-check 核验）。完整报告: 镜像 .scratch/workgraph/root-check-t3-verification.md。核心结论：\n\n【根 tsdown 默认配置】host tsdown.config.ts L20 host-face entry = ['lib/types/{index,invariant,startup}.js'] —— 含 invariant。tsdown 0.22.2 workspace 机制: 包有本地 tsdown.config.ts 时本地配置整体覆盖根默认；无本地配置则继承根默认（实测 dsh-invariants、command-workgraph 均由此产出 lib/invariant.js）。\n\n【兄弟包对比（host lib/ 实测）】workgraph / workgraph-scheduler（有本地配置，仅 index entry）→ 无 lib/invariant.js；command-workgraph（无本地配置，继承根默认）→ lib/invariant.js 存在（979B）；ui-workgraph（本地配置含 index+invariant）→ lib/invariant.js 存在。tsc 对两包确实产出 lib/types/invariant.js(+d.ts)，顶层 bundle 缺失 → exports[\"./invariant\"].default 悬空。\n\n【消费方】host 与镜像全仓 grep：零消费方 import */invariant 子路径（仅 src/invariant.ts docblock 自引用）→ 潜伏问题，暂无损运行。\n\n【门禁实测（host，均 exit 1，全 workspace 失败仅限 workgraph 家族）】\n- pnpm run constraints：仅两包报错 = files 精确匹配失败（重复 lib/invariant.js，发现2 成立且为硬失败）；blame 显示重复项由 host 提交 a1f5fa3ce9 引入。\n- pnpm run verify-built-package-invariants：仅两包报错 = Cannot find module '.../lib/invariant.js'（发现1 的运行体现）。\n- pnpm run verify-package-invariants：10 违规全在 workgraph 家族，其中两包各含 'tsdown.config.ts: package build override must bundle lib/types/invariant.js'（发现1 被门禁明文编码），另有新增发现：dsh-invariants 缺 peer/dev 依赖（workgraph、scheduler、ui-workgraph）、tsconfig 缺 invariants 项目引用（workgraph、scheduler、command-workgraph）。\n\n【一致性】四包 package.json / tsdown.config.ts / tsconfig.json 与 host 逐字节一致；镜像缺 lib/ 为 sync.sh 预期。npm pack --dry-run：tarball 无 lib/invariant.js 且无 warning → 发布面悬空确认。\n\n裁定：审计发现(1)(2) 均真实存在，且被 host 三道门禁当前失败所证实；附带 3 类额外门禁违规（dsh-invariants 依赖、tsconfig references、ui-workgraph peer）。修复方向已写入报告第 7 节。"
+    },
+    {
+      "id": "t4",
+      "subject": "综合裁定：两个问题是否真实存在",
+      "description": "汇总 audit-wg、audit-sched、root-check 三份核验输出，给出最终裁定:\n1. 问题1（workgraph 与 workgraph-scheduler 的 tsdown.config.ts 缺 invariant 入口，导致 lib/invariant.js 永不产出，而 package.json 仍声明 ./invariant 导出与 files 条目）——确认/否认/部分成立，给出依据。\n2. 问题2（两包 files 数组重复列出 lib/invariant.js）——确认/否认。\n3. 补充说明: 该问题的严重度（潜在发布破坏 vs 现有运行破坏）、建议修复方向（tsdown entry 加 'lib/types/invariant.js'，或删除 ./invariant 导出与 files 条目；去重 files）。\n输出: 结构化最终报告（每条结论 + 引用证据来源），写入 /Users/wutianyu/Downloads/company/ca/gitlab/dsh-graph/.scratch/workgroup/team-verdict.md（目录不存在则创建；这是唯一允许的写文件操作）。",
+      "status": "completed",
+      "assignee": "final-review",
+      "dependencies": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "createdAt": 1786876173579,
+      "updatedAt": 1786876775289,
+      "output": "裁定完成。已阅读 t3 报告并对 host 仓库独立复核（含三部门禁实测复跑），报告写入 .scratch/workgroup/team-verdict.md。\n\n【裁定】问题1 成立、问题2 成立。\n- 问题1（tsdown 缺 invariant 入口 → lib/invariant.js 永不产出，exports/files 悬空）: 两包本地 tsdown.config.ts entry 仅 ['lib/types/index.js']（wg L6 / sched L6），根默认含 invariant（host tsdown.config.ts L20）；tsdown 0.22.2 源码确认 mergeConfig=defu 数组整体替换、无本地配置继承根默认；host lib/ 实测两包缺 lib/invariant.js 而 command-workgraph（无本地配置）/ui-workgraph（本地配置含 invariant）/dsh-invariants 均有；lib/types/invariant.js 存在故 types 可解析、default 悬空。门禁 verify-built-package-invariants 复跑 exit 1，仅两包 Cannot find module lib/invariant.js。\n- 问题2（files 重复）: wg package.json L34/L37 重复、sched L30/L32 重复；constraints 门禁复跑 exit 1，仅两包 files 精确匹配失败。\n\n【t3 额外违规归类】10 条 verify-package-invariants 违规全部复核属实且全在家族内: 2 条（tsdown must bundle invariant，wg/sched）与问题1同源；5 条（dsh-invariants peer wg/sched/ui、dev wg/sched）独立问题；3 条（tsconfig 缺 invariants 引用 wg/sched/cmd）独立问题。无一条与问题2同源。\n\n【严重度】发布阻断（三道门禁全部失败且失败项全在两包），但全仓零消费方（仅 docblock 自引用）→ 当前无运行期破坏，发布后外部 import ./invariant 必 ERR_MODULE_NOT_FOUND，属潜伏/潜在破坏。\n\n【修复优先级】P0: 两包 tsdown entry 加 lib/types/invariant.js（对齐 ui-workgraph/根默认）+ files 去重；P1: 同 PR 补 dsh-invariants peer/dev（wg/sched 两者、ui 仅 peer）与 tsconfig references（wg/sched/cmd）；P2: 复跑三部门禁 + npm pack --dry-run 验证。镜像与 host 逐字节一致，修复须落 host。"
+    }
+  ],
+  "taskSeq": 4
+}

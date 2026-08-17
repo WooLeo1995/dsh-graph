@@ -1,0 +1,739 @@
+/* Workgraph top-right activity panel. The dependency map is a compact DAG:
+   absolutely positioned 92x30 nodes over an SVG cubic edge layer, with a
+   segmented progress overview above it. All surfaces follow DSH design
+   tokens; older token names are bridged locally on the plugin surface only
+   (upstream commit 1327d03). Pattern-ported from the AgentTeams activity
+   panel styles (dsh-agent-teams/src/client/ActivityPanel.module.css, MIT). */
+
+:global(html) {
+  --workgraph-panel-width: 388px;
+  /* Follow the better-sidebar plugin's width variable (0 when collapsed or
+     when the plugin is absent), so the panel shifts left of that sidebar
+     instead of overlapping it. The layout shift (--workgraph-panel-shift)
+     stays constant: both the panel and the conversation column move by the
+     same amount, so their relative position is unchanged. */
+  --workgraph-panel-right: calc(18px + var(--dsh-sidebar-width, 0px));
+  --workgraph-panel-gap: 14px;
+  --workgraph-panel-shift: calc(var(--workgraph-panel-width) + 18px + var(--workgraph-panel-gap));
+}
+
+/* The web shell owns no top-right slot. While this body-portal panel is open,
+   its global marker lets only the center conversation column yield room. The
+   sidebar stays anchored; the transcript and sticky composer share one smooth
+   width transition because both live under the same conversation root. */
+:global(html[data-workgraph-panel-open]) :global([data-phase='active']) {
+  box-sizing: border-box;
+  padding-right: var(--workgraph-panel-shift);
+}
+
+:global([data-phase='active']) {
+  transition: padding-right 360ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: padding-right;
+}
+
+
+.badge {
+  position: fixed;
+  top: 64px;
+  right: var(--workgraph-panel-right);
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 92%, transparent);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--dsw-alias-label-primary) 14%, transparent);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 20px;
+  cursor: pointer;
+  transition: border-color 150ms ease, transform 120ms ease;
+}
+
+.badge:hover {
+  border-color: var(--dsw-alias-border-l2);
+  transform: translateY(-1px);
+}
+
+.badge:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.badge:focus-visible,
+.closeButton:focus-visible,
+.dagNode:focus-visible {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+}
+
+.badgeDot,
+.panelDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dsw-alias-label-tertiary);
+}
+
+.badgeDot[data-busy='true'],
+.panelDot[data-busy='true'] {
+  background: var(--dsw-alias-state-business-primary);
+  animation: workgraphPulse 1.25s ease-in-out infinite;
+}
+
+.badgeCount,
+.dagNodeId {
+  font-variant-numeric: tabular-nums;
+}
+
+/* panel shell */
+.panel {
+  position: fixed;
+  top: 64px;
+  right: var(--workgraph-panel-right);
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--workgraph-panel-width), calc(100vw - 24px));
+  /* Portal 浮层的包含块即视口(工作区父容器):高度上限取父容器的 70%。 */
+  max-height: 70dvh;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--dsw-alias-border-l2) 58%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-module-platform) 95%, transparent);
+  backdrop-filter: blur(20px) saturate(1.08);
+  box-shadow:
+    0 12px 32px color-mix(in srgb, var(--dsw-alias-label-primary) 12%, transparent),
+    0 32px 72px color-mix(in srgb, var(--dsw-alias-label-primary) 16%, transparent);
+  animation: workgraphPanelIn 180ms ease-out;
+  /* Elevated surface: the scrollbar thumb takes the l2 elevation tokens. The
+     declaration sits on the panel rather than on `.graphs` because the
+     elevation is a property of this surface, and the custom properties
+     inherit down to whichever descendant actually scrolls (see ui-theme
+     styles/scrollbar.css for the rebinding contract). */
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
+}
+
+@keyframes workgraphPanelIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes workgraphPulse {
+  0%, 100% { opacity: 0.42; }
+  50% { opacity: 1; }
+}
+
+.panelHead {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.panelTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.closeButton {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.closeButton:hover {
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+}
+
+.closeButton:active {
+  transform: scale(0.94);
+}
+
+.graphs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* graph */
+.graph {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px 16px;
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.graph:last-child {
+  border-bottom: 0;
+}
+
+.graphHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.objective {
+  overflow: hidden;
+  flex: 1;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.status[data-status='active'] {
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.status[data-status='complete'] {
+  background: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.status[data-status='blocked'],
+.status[data-status='budget_limited'],
+.status[data-status='infra_paused'] {
+  background: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.meta {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10.5px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.pause {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.historicPill {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 15px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sectionTitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.sectionHint {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
+  line-height: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* progress overview */
+.progressOverview {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.progressTitle {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.progressSegments {
+  display: flex;
+  gap: 3px;
+}
+
+.progressSegments > span,
+.progressEmpty {
+  flex: 1;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.progressEmpty {
+  display: block;
+  width: 100%;
+}
+
+.progressSegments > span[data-state='running'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.progressSegments > span[data-state='blocked'] {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.progressSegments > span[data-state='completed'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.progressSegments > span[data-state='failed'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.progressLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 9.5px;
+  line-height: 14px;
+}
+
+.progressLegend > span[data-state='running'] {
+  color: var(--dsw-alias-state-business-primary);
+}
+
+.progressLegend > span[data-state='blocked'] {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.progressLegend > span[data-state='completed'] {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.progressSummary {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 7%, var(--dsw-alias-bg-layer-1));
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 15px;
+}
+
+.progressSummary[data-state='warning'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+
+.progressSummary[data-state='completed'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+
+.progressSummary > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progressSummaryDot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.progressSummary[data-state='warning'] .progressSummaryDot {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.progressSummary[data-state='completed'] .progressSummaryDot {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+/* compact dependency DAG */
+.dependencySection {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.dagViewport {
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+  scrollbar-width: none;
+}
+
+.dagViewport::-webkit-scrollbar {
+  display: none;
+}
+
+.dagCanvas {
+  position: relative;
+  min-width: 100%;
+}
+
+.dagEdges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.dagEdges path {
+  fill: none;
+  stroke: var(--dsw-alias-border-l2);
+  stroke-width: 1;
+  transition: opacity 140ms ease, stroke 140ms ease, stroke-width 140ms ease;
+}
+
+.dagEdges path[data-active='true'] {
+  stroke: var(--dsw-alias-state-business-primary);
+  stroke-width: 1.6;
+}
+
+.dagEdges path[data-dimmed='true'] {
+  opacity: 0.24;
+}
+
+.dagParallelGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 2px 0 4px;
+}
+
+.dagNode {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, opacity 140ms ease;
+}
+
+.dagParallelGrid .dagNode {
+  position: static;
+  flex: none;
+}
+
+.dagNode:hover,
+.dagNode[data-focused='true'] {
+  border-color: var(--dsw-alias-state-business-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 6%, var(--dsw-alias-bg-layer-1));
+}
+
+.dagNode[data-dimmed='true'] {
+  opacity: 0.3;
+}
+
+.dagNode[data-state='completed'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-success-primary) 48%, var(--dsw-alias-border-l1));
+}
+
+.dagNode[data-state='blocked'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 52%, var(--dsw-alias-border-l1));
+}
+
+.dagNode[data-state='failed'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-error-primary) 56%, var(--dsw-alias-border-l1));
+}
+
+.dagNode[data-state='running'] {
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 62%, var(--dsw-alias-border-l1));
+  animation: workgraphRunPulse 1.4s ease-in-out infinite;
+}
+
+.dagNode[data-final='true'] {
+  border-width: 2px;
+}
+
+.dagNodeHead {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.dagNodeDot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 1.5px;
+  background: var(--dsw-alias-border-l2);
+}
+
+.dagNodeDot[data-state='running'] {
+  background: var(--dsw-alias-state-business-primary);
+}
+
+.dagNodeDot[data-state='blocked'] {
+  background: var(--dsw-alias-state-warn-primary);
+}
+
+.dagNodeDot[data-state='completed'] {
+  background: var(--dsw-alias-state-success-primary);
+}
+
+.dagNodeDot[data-state='failed'] {
+  background: var(--dsw-alias-state-error-primary);
+}
+
+.dagNodeId {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workGlyph {
+  flex: none;
+  margin-left: auto;
+}
+
+.workGlyph rect {
+  opacity: 0.5;
+}
+
+.workGlyph[data-active='true'] rect {
+  animation: workgraphDot 1.1s ease-in-out infinite;
+}
+
+@keyframes workgraphDot {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+@keyframes workgraphRunPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--dsw-alias-state-business-primary) 0%, transparent); }
+  50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--dsw-alias-state-business-primary) 22%, transparent); }
+}
+
+.dagNodeLabel {
+  overflow: hidden;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 8.5px;
+  line-height: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* detail row */
+.taskDetail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 9px;
+  background: var(--dsw-alias-bg-module-platform);
+}
+
+.taskDetailHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.taskDetailId {
+  flex: none;
+  color: var(--dsw-alias-state-business-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.taskDetailSubject {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.taskDetailBadge {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 14px;
+}
+
+.taskDetailBadge[data-state='running'] {
+  background: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.taskDetailBadge[data-state='blocked'] {
+  background: var(--dsw-alias-state-warn-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.taskDetailBadge[data-state='completed'] {
+  background: var(--dsw-alias-state-success-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.taskDetailBadge[data-state='failed'] {
+  background: var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-label-primary-inverted);
+}
+
+.taskDetailLine,
+.taskDetailMeta {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 9.5px;
+  line-height: 14px;
+}
+
+.taskDetailMeta {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.emptyHint {
+  padding: 10px 12px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+}
+
+/* historic summaries */
+.graph[data-historic] {
+  opacity: 0.82;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :global([data-phase='active']),
+  .panel,
+  .badge,
+  .badgeDot,
+  .panelDot,
+  .dagNode[data-state='running'],
+  .workGlyph rect {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (max-width: 960px) {
+  :global(html) {
+    --workgraph-main-shift: 0px;
+  }
+
+  :global(html[data-workgraph-panel-open]) :global([data-phase='active']) {
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  :global(html) {
+    /* Keep the narrow-screen inset while still clearing the better-sidebar. */
+    --workgraph-panel-right: calc(10px + var(--dsh-sidebar-width, 0px));
+  }
+
+  .panel {
+    top: 56px;
+    left: 10px;
+    width: auto;
+    max-height: calc(100dvh - 68px);
+  }
+
+  .badge {
+    top: 56px;
+  }
+
+  .meta {
+    display: none;
+  }
+}

@@ -9,6 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Context } from '@deepseek-ai/cordis'
 import {
   WorkGraphEngine,
@@ -17,11 +18,18 @@ import {
   commitWorkGraphChange,
   foldWorkGraph,
 } from '@deepseek-ai/dsh-workgraph'
-import type { ResumeWorkGraphRequest, SetWorkGraphRequest, WorkGraphLimits, WorkGraphSnapshot } from '@deepseek-ai/dsh-workgraph'
+import type {
+  ResumeWorkGraphRequest,
+  SetWorkGraphRequest,
+  WorkGraphLimits,
+  WorkGraphPanelSnapshot,
+  WorkGraphSnapshot,
+} from '@deepseek-ai/dsh-workgraph'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SubagentStartRequest } from '@deepseek-ai/dsh-subagent'
 import type { WorkNodeId } from '@deepseek-ai/dsh-workgraph/types'
 import { createBaselineStore, type BaselineStore } from './baselines.ts'
+import { assemblePanelSnapshot } from './snapshot.ts'
 import { PLAN_OUTPUT_SCHEMA, runPlannerEpisode, type PlannerSpawn } from './planner.ts'
 import type { WorkerSpawn } from './worker.ts'
 import { continuationWorkerRound, type WorkerRound } from './continuation.ts'
@@ -41,6 +49,23 @@ import {
   retryAllNodes,
   retryNodes,
 } from './tracker.ts'
+
+/**
+ * Structural slice of the Web server service, compatible with both the
+ * published `dsh-host-webserver@0.0.1-rc.1` (`ctx.httpServer`) and the
+ * renamed `webServer` in current builds: the beta transition renamed the
+ * service without changing the route registration shape.
+ */
+interface WebRouteHost {
+  register(route: {
+    kind: 'exact' | 'prefix'
+    path: string
+    handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>
+  }): () => void
+}
+
+/** Web-server service key candidates, newest first. */
+const WEB_SERVER_KEYS = ['webServer', 'httpServer'] as const
 
 /** Scheduler configuration, validated by the loading composition (issue 07). */
 export interface WorkGraphSchedulerConfig {
@@ -172,8 +197,12 @@ export class WorkGraphScheduler extends WorkGraphEngine {
   private episodeAbort: AbortController
   /** The in-flight drive's settlement; pause awaits it bounded by the budget. */
   private episodeSettled: Promise<void> = Promise.resolve()
+  /** The episode chain's rejection, rethrown by {@link settled}. */
+  private episodeError: unknown = undefined
   /** Held project locks per agent (the graph's lifetime); writes project the state. */
   private readonly projectLocks = new Map<string, { mainDir: string }>()
+  /** Whether the panel state route is registered (lazy web-surface guard). */
+  private webRegistered = false
 
   constructor(ctx: Context, config: WorkGraphSchedulerConfig) {
     super(ctx)
@@ -196,6 +225,60 @@ export class WorkGraphScheduler extends WorkGraphEngine {
     this.optimizer = resolved.optimizer
     this.childAwaitBudget = resolved.childAwaitBudget
     this.episodeAbort = new AbortController()
+    // The panel state route needs the Web server, which headless profiles do
+    // not mount and which may bind after this service under concurrent
+    // activation. Register lazily: try now, then on each service binding
+    // event. In a webless profile the scheduler stays headless and never
+    // blocks boot.
+    this.registerWebSurface()
+    this.ctx.on('internal/service', (name) => {
+      if (WEB_SERVER_KEYS.includes(name as (typeof WEB_SERVER_KEYS)[number])) {
+        this.registerWebSurface()
+      }
+    })
+  }
+
+  /**
+   * Lazily register the activity-panel state route
+   * (`GET /plugins/dsh-workgraph/state`, `cache-control: no-store`). The
+   * handler enumerates the live agents and assembles one panel snapshot per
+   * session that owns a graph; the panel filters by `sessionId` client-side.
+   * A webless profile (no `webServer` service) skips registration silently —
+   * the scheduler's core never depends on the web surface. Pattern ported
+   * from dsh-agent-teams' lazy route binding (`src/index.ts`, MIT).
+   */
+  private registerWebSurface(): void {
+    if (this.webRegistered) return
+    const webServer = (this.ctx.get(WEB_SERVER_KEYS[0]) ?? this.ctx.get(WEB_SERVER_KEYS[1])) as WebRouteHost | undefined
+    if (webServer === undefined) return
+    this.webRegistered = true
+    this.ctx.effect(() => webServer.register({
+      kind: 'exact',
+      path: '/plugins/dsh-workgraph/state',
+      handler: (_req, res) => {
+        const graphs: WorkGraphPanelSnapshot[] = []
+        const agents = this.ctx.get('agents')
+        if (agents !== undefined) {
+          for (const agent of agents.list()) {
+            // One bad session (e.g. a torn-down log mid-close) must not take
+            // down the whole panel response: skip it and keep the healthy
+            // graphs.
+            try {
+              const current = this.current(agent)
+              if (current !== null) graphs.push(assemblePanelSnapshot(agent.id, current))
+            } catch (error: unknown) {
+              this.ctx.logger.warn(`workgraph: panel snapshot skipped for session ${agent.id}: ${String(error)}`)
+            }
+          }
+        }
+        const body = JSON.stringify({ graphs })
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        })
+        res.end(body)
+      },
+    }), 'workgraph: panel state route')
   }
 
   /** Whether the topology optimizer is enabled (consumed at plan boundaries). */
@@ -269,9 +352,91 @@ export class WorkGraphScheduler extends WorkGraphEngine {
   }
 
   /** Track one drive's settlement so pause can await child quiescence. */
-  private trackEpisode(pending: Promise<WorkGraphSnapshot>): Promise<WorkGraphSnapshot> {
-    this.episodeSettled = pending.then(() => undefined, () => undefined)
+  private trackEpisode(pending: Promise<WorkGraphSnapshot | null>): Promise<WorkGraphSnapshot | null> {
+    this.episodeSettled = pending.then(
+      () => { this.episodeError = undefined },
+      (error: unknown) => { this.episodeError = error },
+    )
     return pending
+  }
+
+  /**
+   * Dispatch the planning+drive chain DETACHED: the scheduler owns the graph's
+   * progress from here on, and the parent conversation spends no model turn
+   * and no blocking await. Failures are contained — the graph pauses infra
+   * with the reason instead of being left active with no driver — and the
+   * chain's settlement is tracked for pause's bounded wait and {@link settled}
+   * (which rethrows the chain's rejection).
+   * @param agent - the owning agent.
+   */
+  private dispatch(agent: Agent): void {
+    // The chain is deliberately detached; trackEpisode attaches the
+    // settlement/rejection handlers that keep the promise from floating.
+    void this.trackEpisode(this.runEpisode(agent))
+  }
+
+  /**
+   * Run one episode chain to settlement: re-plan a pending graph, run the
+   * plan-boundary optimizer, then drive the graph until it settles. A thrown
+   * failure first pauses the graph as infra with the reason (never leaves an
+   * active graph undriven) and is then RETHROWN so blocking callers still
+   * see the loud signal; a graph cleared mid-episode stays cleared and the
+   * drive's NOT_FOUND is what propagates.
+   * @param agent - the owning agent.
+   * @returns the settled snapshot, or `null` when the graph is gone.
+   */
+  private async runEpisode(agent: Agent): Promise<WorkGraphSnapshot | null> {
+    try {
+      const current = this.current(agent)
+      /* v8 ignore next 3 -- dispatch() follows its own durable commit with no await boundary, so the live view is never null here */
+      if (current === null) return null
+      const snapshot = current.nodes.length === 0
+        ? await this.planAndInstall(agent, current)
+        : current
+      // drive() owns the active-status gate: a failed planning episode
+      // returns a paused snapshot and stops there.
+      await this.maybeOptimize(agent)
+      return await this.drive(agent, snapshot)
+    } catch (error) {
+      this.ctx.logger.error(`workgraph: episode failed: ${String(error)}`)
+      const current = this.current(agent)
+      if (current !== null && current.status === 'active') {
+        try {
+          const paused = pauseGraph(
+            current,
+            'infra',
+            `episode failed: ${String(error)}`,
+            this.limits,
+            Date.now(),
+          )
+          await this.commit(agent, { kind: 'workgraph/change', version: 1, graph: paused }, 'checkpoint', paused)
+        } catch (pauseError) {
+          /* v8 ignore next 3 -- the pause commit rethrows only when the session log itself fails; the primary failure is already logged */
+          this.ctx.logger.error(`workgraph: failed to pause after an episode failure: ${String(pauseError)}`)
+        }
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Await the current episode chain's settlement and return the latest
+   * committed snapshot; the chain's rejection is rethrown (an episode that
+   * failed has paused the graph infra with the reason). Throws
+   * `WORKGRAPH_NOT_FOUND` when the graph was cleared mid-episode.
+   * @param agent - the agent whose session owns the graph.
+   * @returns the settled snapshot.
+   */
+  async settled(agent: Agent): Promise<WorkGraphSnapshot> {
+    await this.episodeSettled
+    if (this.episodeError !== undefined) {
+      throw this.episodeError instanceof Error ? this.episodeError : new Error(String(this.episodeError))
+    }
+    const current = this.current(agent)
+    if (current === null) {
+      throw new WorkGraphError('graph cleared mid-episode', 'WORKGRAPH_NOT_FOUND')
+    }
+    return current
   }
 
   /** The planner spawn seam for one owning agent. */
@@ -511,6 +676,10 @@ export class WorkGraphScheduler extends WorkGraphEngine {
     if (outcome.kind === 'invalid') {
       outcome = await runPlannerEpisode({ objective, feedback: outcome.reason, limits: this.limits, signal, spawn })
     }
+    // A pause/clear that landed during planning abandons the plan: the
+    // paused (or cleared) state stands as-is and a cleared graph never
+    // resurrects through a late install commit.
+    if (this.episodeAbort.signal.aborted) return snapshot
     const now = Date.now()
     if (outcome.kind === 'invalid') {
       const paused = pausePlanningFailed(
@@ -556,15 +725,28 @@ export class WorkGraphScheduler extends WorkGraphEngine {
   }
 
   /**
-   * Plan and start a work graph: create the pending graph durably, run the
-   * planning episode (one feedback retry), install the validated plan, freeze
-   * the v1 baseline, and leave the graph active. A rejected or failed plan
-   * pauses the graph as infra; `resume` re-plans.
+   * Plan and start a work graph, then drive it to settlement — the blocking
+   * form of {@link dispatchSet}, kept for programmatic callers and tests.
    * @param agent - the agent whose session owns the graph.
    * @param request - the objective and an optional positive token budget.
-   * @returns the resulting snapshot (active, or infra-paused on planning failure).
+   * @returns the settled snapshot.
    */
   async set(agent: Agent, request: SetWorkGraphRequest): Promise<WorkGraphSnapshot> {
+    await this.dispatchSet(agent, request)
+    return this.settled(agent)
+  }
+
+  /**
+   * Validate, create, and commit a pending work graph, then run planning and
+   * the drive DETACHED in the background. Returns as soon as the pending
+   * graph is durable, so `/graph set` never blocks the command channel for
+   * the graph's whole lifetime; planning failure pauses the graph infra in
+   * the background (visible via status) and resume re-plans.
+   * @param agent - the agent whose session owns the graph.
+   * @param request - the objective and an optional positive token budget.
+   * @returns the durable pending snapshot.
+   */
+  async dispatchSet(agent: Agent, request: SetWorkGraphRequest): Promise<WorkGraphSnapshot> {
     const objective = request.objective.trim()
     if (objective.length === 0) {
       throw new WorkGraphError('objective must be non-empty', 'WORKGRAPH_INVALID_OBJECTIVE')
@@ -611,11 +793,16 @@ export class WorkGraphScheduler extends WorkGraphEngine {
     }
     await this.commit(agent, { kind: 'workgraph/change', version: 1, graph: snapshot }, 'set', snapshot)
     if (mainDir !== undefined) {
-      await writeProject(mainDir, snapshot)
+      // The initial projection write degrades like every checkpoint write:
+      // the session log is the source of truth, never the file.
+      try {
+        await writeProject(mainDir, snapshot)
+      } catch (error) {
+        this.ctx.logger.warn(`workgraph: projection write failed: ${String(error)}`)
+      }
     }
-    const planned = await this.planAndInstall(agent, snapshot)
-    await this.maybeOptimize(agent)
-    return this.trackEpisode(this.drive(agent, planned))
+    this.dispatch(agent)
+    return snapshot
   }
 
   async status(agent: Agent): Promise<WorkGraphSnapshot | null> {
@@ -656,13 +843,27 @@ export class WorkGraphScheduler extends WorkGraphEngine {
   }
 
   /**
-   * Resume a paused or blocked graph to active. A pending graph (planning
-   * previously failed) re-plans here; budget top-up semantics land with issue 03.
+   * Resume a paused or blocked graph to active and drive it to settlement —
+   * the blocking form of {@link dispatchResume}.
    * @param agent - the agent whose session owns the graph.
    * @param request - optional resume directives.
-   * @returns the resumed snapshot.
+   * @returns the settled snapshot.
    */
   async resume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGraphSnapshot> {
+    await this.dispatchResume(agent, request)
+    return this.settled(agent)
+  }
+
+  /**
+   * Resume a paused, blocked, or budget-limited graph to active and re-drive
+   * it DETACHED in the background; a pending graph (planning previously
+   * failed) re-plans there. Returns the durable resumed snapshot immediately;
+   * validation refusals still throw.
+   * @param agent - the agent whose session owns the graph.
+   * @param request - optional resume directives.
+   * @returns the durable resumed snapshot.
+   */
+  async dispatchResume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGraphSnapshot> {
     // A second session may read the projection but never resume it: the
     // exclusive lock belongs to the session that created or resumed it.
     // The refusal precedes requireGraph so a revived graph is refused by
@@ -687,37 +888,66 @@ export class WorkGraphScheduler extends WorkGraphEngine {
       )
     }
     this.episodeAbort = new AbortController()
-    let snapshot = resumeGraph(current, request?.budget, this.limits, Date.now())
-    if (snapshot.nodes.length === 0) {
-      // The planning episode never succeeded (infra pause, or a restore that
-      // demoted a pending graph): re-plan before continuing.
-      snapshot = await this.planAndInstall(agent, snapshot)
-      await this.maybeOptimize(agent)
-    }
-    await await this.commit(agent, { kind: 'workgraph/change', version: 1, graph: snapshot }, 'resume', snapshot)
-    return this.trackEpisode(this.drive(agent, snapshot))
+    const snapshot = resumeGraph(current, request?.budget, this.limits, Date.now())
+    await this.commit(agent, { kind: 'workgraph/change', version: 1, graph: snapshot }, 'resume', snapshot)
+    this.dispatch(agent)
+    return snapshot
   }
 
   /**
-   * Reset one terminal node plus its transitively blocked chain.
+   * Reset one terminal node plus its transitively blocked chain and drive the
+   * graph to settlement — the blocking form of {@link dispatchRetry}.
    * @param agent - the agent whose session owns the graph.
    * @param node - the failed or blocked node to retry.
-   * @returns the snapshot after the reset batch.
+   * @returns the settled snapshot.
    */
   async retry(agent: Agent, node: WorkNodeId): Promise<WorkGraphSnapshot> {
+    await this.dispatchRetry(agent, node)
+    return this.settled(agent)
+  }
+
+  /**
+   * Reset one terminal node plus its transitively blocked chain and re-drive
+   * the graph DETACHED in the background. Returns the durable reset snapshot
+   * immediately.
+   * @param agent - the agent whose session owns the graph.
+   * @param node - the failed or blocked node to retry.
+   * @returns the durable snapshot after the reset batch.
+   */
+  async dispatchRetry(agent: Agent, node: WorkNodeId): Promise<WorkGraphSnapshot> {
     const current = this.requireGraph(agent)
     this.episodeAbort = new AbortController()
     const snapshot = retryNodes(current, node, this.limits, Date.now())
     await this.commit(agent, { kind: 'workgraph/change', version: 1, graph: snapshot }, 'retry', snapshot)
-    return this.trackEpisode(this.drive(agent, snapshot))
+    this.dispatch(agent)
+    return snapshot
   }
 
+  /**
+   * Reset every failed node plus its blocked chains as ONE batch and drive to
+   * settlement — the blocking form of {@link dispatchRetryAll}.
+   * @param agent - the agent whose session owns the graph.
+   * @returns the settled snapshot.
+   */
   async retryAll(agent: Agent): Promise<WorkGraphSnapshot> {
+    await this.dispatchRetryAll(agent)
+    return this.settled(agent)
+  }
+
+  /**
+   * Reset every failed node plus its blocked chains as ONE batch and re-drive
+   * the graph DETACHED in the background. Returns the durable reset snapshot
+   * immediately.
+   * @param agent - the agent whose session owns the graph.
+   * @returns the durable snapshot after the union reset batch.
+   */
+  async dispatchRetryAll(agent: Agent): Promise<WorkGraphSnapshot> {
     const current = this.requireGraph(agent)
     this.episodeAbort = new AbortController()
     const snapshot = retryAllNodes(current, this.limits, Date.now())
     await this.commit(agent, { kind: 'workgraph/change', version: 1, graph: snapshot }, 'retry', snapshot)
-    return this.trackEpisode(this.drive(agent, snapshot))
+    this.dispatch(agent)
+    return snapshot
   }
 
   /**

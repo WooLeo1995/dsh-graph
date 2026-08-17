@@ -167,25 +167,39 @@ describe('@deepseek-ai/dsh-command-workgraph', () => {
     expect(await test.scheduler.status(test.agent)).toBeNull()
   })
 
-  it('sets an objective and renders the completed status tree', async () => {
+  it('dispatches a set immediately and completes in the background', async () => {
     const result = await run(test, ' build the thing')
     expect(result.kind).toBe('success')
     const text = result.text
+    // The command returns the durable pending render at once — it never
+    // blocks the command channel for the graph's whole lifetime.
     expect(text).toContain('Graph: build the thing')
-    expect(text).toContain('Status: complete | Plan v1')
-    expect(text).toContain('Nodes: 3/3 achieved')
-    expect(text).toContain('[x]')
-    expect(text).toContain('Tokens: 15')
+    expect(text).toContain('Status: active | Plan v1')
+    expect(text).toContain('Nodes: 0/0 achieved')
+    expect(text).toContain('Planning and execution run in the background')
+    // The drive settles detached; status then shows the completed tree.
+    const settled = await test.scheduler.settled(test.agent)
+    expect(settled.status).toBe('complete')
+    const status = await run(test, ' status')
+    expect(status.kind).toBe('success')
+    expect(status.text).toContain('Status: complete | Plan v1')
+    expect(status.text).toContain('Nodes: 3/3 achieved')
+    expect(status.text).toContain('[x]')
+    expect(status.text).toContain('Tokens: 15')
   })
 
   it('consumes a trailing own-token --budget and leaves mid-objective mentions alone', async () => {
     const budgeted = await run(test, ' build it --budget 100')
     expect(budgeted.kind).toBe('success')
     expect(budgeted.text).toContain('Budget: 100')
+    // Each set dispatches detached; a set replaces only a completed graph,
+    // so settle before the next objective.
+    await test.scheduler.settled(test.agent)
     const mention = await run(test, ' add --budget support to the docs')
     expect(mention.kind).toBe('success')
     expect(mention.text).toContain('Graph: add --budget support to the docs')
     expect(mention.text).not.toContain('Budget:')
+    await test.scheduler.settled(test.agent)
     const zero = await run(test, ' build it --budget 0')
     expect(zero.kind).toBe('success')
     expect(zero.text).toContain('Graph: build it --budget 0')
@@ -199,7 +213,11 @@ describe('@deepseek-ai/dsh-command-workgraph', () => {
     await run(test, ' clear')
     const fresh = await run(test, ' fresh objective')
     expect(fresh.kind).toBe('success')
-    expect(fresh.text).toContain('Status: complete')
+    expect(fresh.text).toContain('Graph: fresh objective')
+    await test.scheduler.settled(test.agent)
+    const status = await run(test, ' status')
+    expect(status.kind).toBe('success')
+    expect(status.text).toContain('Status: complete')
   })
 
   it('renders the status tree with glyphs, waits, rounds, failures, budget, and pause reason', async () => {
@@ -414,8 +432,13 @@ describe('@deepseek-ai/dsh-command-workgraph', () => {
     seed(test, seeded)
     const result = await run(test, ' resume --budget 20')
     expect(result.kind).toBe('success')
-    expect(result.text).toContain('Status: complete')
+    // The durable resume render carries the top-up from spent-so-far...
     expect(result.text).toContain('Budget: 23')
+    // ...and the detached drive settles the graph.
+    await test.scheduler.settled(test.agent)
+    const status = await run(test, ' status')
+    expect(status.kind).toBe('success')
+    expect(status.text).toContain('Status: complete')
   })
 
   it('retries one failed chain by node id and reports unknown targets honestly', async () => {
@@ -437,7 +460,9 @@ describe('@deepseek-ai/dsh-command-workgraph', () => {
     expect(before.text).toContain('Status: blocked | Plan v1')
     const result = await run(test, ` retry ${a}`)
     expect(result.kind).toBe('success')
-    expect(result.text).toContain('Status: complete')
+    expect(result.text).toContain('Status: active | Plan v1')
+    await test.scheduler.settled(test.agent)
+    expect((await run(test, ' status')).text).toContain('Status: complete')
     const unknown = await run(test, ' retry gn-00000000')
     expect(unknown).toEqual({ kind: 'error', text: expect.stringContaining('unknown node gn-00000000') })
   })
@@ -461,7 +486,8 @@ describe('@deepseek-ai/dsh-command-workgraph', () => {
     const result = await run(test, ' retry')
     expect(result.kind).toBe('success')
     expect(result.text).toContain('Retried 2 failure chain(s)')
-    expect(result.text).toContain('Status: complete')
+    await test.scheduler.settled(test.agent)
+    expect((await run(test, ' status')).text).toContain('Status: complete')
     const none = await run(test, ' retry')
     expect(none).toEqual({ kind: 'success', text: 'No failed nodes to retry.' })
   })
@@ -483,10 +509,16 @@ describe('@deepseek-ai/dsh-command-workgraph', () => {
         stopReason: 'error',
       } as unknown as PlannerSpawnResult,
     })
-    // The scripted planner fails closed; the error message is honest.
+    // The scripted planner fails closed; the command dispatches, and the
+    // detached episode pauses the graph infra with the honest reason.
     const result = await run(test, ' build it')
     expect(result.kind).toBe('success')
-    expect(result.text).toContain('Status: infra paused')
+    const settled = await test.scheduler.settled(test.agent)
+    expect(settled.status).toBe('infra_paused')
+    expect(settled.pauseReason).toContain('graph planning failed')
+    const status = await run(test, ' status')
+    expect(status.kind).toBe('success')
+    expect(status.text).toContain('Status: infra paused')
     // A non-domain engine failure (a malformed persisted change) propagates
     // through the handler — never mistaken for a domain error. A fresh
     // harness has no live view, so the fold must replay the malformed event.

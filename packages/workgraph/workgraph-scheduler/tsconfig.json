@@ -25,6 +25,9 @@
     },
     {
       "path": "../workgraph"
+    },
+    {
+      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

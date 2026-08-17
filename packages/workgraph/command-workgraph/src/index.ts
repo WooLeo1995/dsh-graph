@@ -137,6 +137,19 @@ function statusGlyph(state: WorkNodeState): string {
   }
 }
 
+/**
+ * Render the snapshot returned by a dispatch (set/resume/retry): the command
+ * returns immediately while the graph runs in the background, so a pending
+ * (zero-node) graph carries a progress hint instead of looking stuck.
+ */
+function renderDispatch(snapshot: WorkGraphSnapshot): string {
+  const rendered = renderStatus(snapshot)
+  if (snapshot.status === 'active' && snapshot.nodes.length === 0) {
+    return `${rendered}\nPlanning and execution run in the background — /graph status|show and the DAG view update as it proceeds.`
+  }
+  return rendered
+}
+
 /** The DAG glyph per node state (jxca unicode set). */
 function dagGlyph(state: WorkNodeState): string {
   switch (state) {
@@ -505,11 +518,11 @@ async function executeGraphCommand(ctx: Context, invocation: CommandInvocation):
       case 'resume': {
         const current = await ctx.workGraph.status(agent)
         if (current === null) return noGraph('resume')
-        const resumed = await ctx.workGraph.resume(
+        const resumed = await ctx.workGraph.dispatchResume(
           agent,
           command.budget === undefined ? undefined : { budget: command.budget },
         )
-        return { kind: 'success', text: renderStatus(resumed) }
+        return { kind: 'success', text: renderDispatch(resumed) }
       }
       case 'retry': {
         const current = await ctx.workGraph.status(agent)
@@ -517,14 +530,14 @@ async function executeGraphCommand(ctx: Context, invocation: CommandInvocation):
         if (command.node === undefined) {
           const before = current.nodes.filter(node => node.state === 'failed').length
           if (before === 0) return { kind: 'success', text: 'No failed nodes to retry.' }
-          const retried = await ctx.workGraph.retryAll(agent)
+          const retried = await ctx.workGraph.dispatchRetryAll(agent)
           return {
             kind: 'success',
-            text: `Retried ${before} failure chain(s).\n${renderStatus(retried)}`,
+            text: `Retried ${before} failure chain(s).\n${renderDispatch(retried)}`,
           }
         }
-        const retried = await ctx.workGraph.retry(agent, command.node as never)
-        return { kind: 'success', text: renderStatus(retried) }
+        const retried = await ctx.workGraph.dispatchRetry(agent, command.node as never)
+        return { kind: 'success', text: renderDispatch(retried) }
       }
       case 'clear': {
         const current = await ctx.workGraph.status(agent)
@@ -533,11 +546,11 @@ async function executeGraphCommand(ctx: Context, invocation: CommandInvocation):
         return { kind: 'success', text: 'Graph cleared.' }
       }
       case 'set': {
-        const snapshot = await ctx.workGraph.set(agent, {
+        const snapshot = await ctx.workGraph.dispatchSet(agent, {
           objective: command.objective,
           ...(command.budget === undefined ? {} : { tokenBudget: command.budget }),
         })
-        return { kind: 'success', text: renderStatus(snapshot) }
+        return { kind: 'success', text: renderDispatch(snapshot) }
       }
       /* v8 ignore next 2 -- GraphCommand is closed and every member is handled above */
       default: return assertNever(command, 'graph command')

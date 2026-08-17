@@ -238,13 +238,34 @@ describe('parallel batches', () => {
     let release!: (result: WorkerRoundResult) => void
     const gate = new Promise<WorkerRoundResult>((resolve) => { release = resolve })
     let calls = 0
-    const round: WorkerRound = async (_request) => {
+    const round: WorkerRound = async (request) => {
       calls += 1
-      return calls === 1 ? gate : ROUND_DONE
+      if (calls === 1) {
+        // Report the publication like the real transport, then hold the
+        // round in flight.
+        await request.onSpawned?.('child-1')
+        return gate
+      }
+      return ROUND_DONE
     }
     const { s, agent } = scheduler(round, undefined, { git })
     const pending = s.set(agent, { objective: 'ship it' })
-    await new Promise<void>(resolve => setTimeout(resolve, 10))
+    // Poll for the installed batch rather than sleep: under suite contention
+    // the pause can otherwise land DURING planning, where the aborted plan
+    // install is abandoned and no node exists to demote (the pause still
+    // sticks; the pending graph stays pending). The round reports its
+    // publication like the real transport, so the running transition is
+    // observable at spawn.
+    const startedAt = Date.now()
+    for (;;) {
+      // status() is null until the dispatch's pending commit lands; poll
+      // through that window too.
+      const live = await s.status(agent)
+      const a = live?.nodes.find(node => node.id === canonicalNodeId('a'))
+      if (a !== undefined && a.state === 'running') break
+      if (Date.now() - startedAt > 5000) throw new Error('batch never started')
+      await new Promise<void>(resolve => setTimeout(resolve, 5))
+    }
     const paused = await s.pause(agent, 'stop now')
     expect(paused.status).toBe('user_paused')
     release(ROUND_DONE)

@@ -1,12 +1,12 @@
 .card {
-  border: 1px solid var(--dsh-color-border, #ddd);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 8px;
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--dsh-color-surface, #fff);
-  color: var(--dsh-color-text, #222);
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
 }
 
 .header {
@@ -24,34 +24,50 @@
   font-size: 12px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--dsh-color-bg-muted, #f0f0f0);
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 .status[data-status='complete'] {
-  background: var(--dsh-color-success-soft, #e6f4ea);
-  color: var(--dsh-color-success, #188038);
+  background: var(--dsw-alias-state-success-tertiary);
+  color: var(--dsw-alias-state-success-primary);
 }
 
 .status[data-status='blocked'],
 .status[data-status='budget_limited'] {
-  background: var(--dsh-color-warning-soft, #fef7e0);
-  color: var(--dsh-color-warning, #b06000);
+  background: var(--dsw-alias-state-warn-tertiary);
+  color: var(--dsw-alias-state-warn-primary);
 }
 
 .status[data-status='user_paused'],
 .status[data-status='infra_paused'] {
-  background: var(--dsh-color-bg-muted, #f0f0f0);
-  color: var(--dsh-color-text-muted, #666);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .meta {
   font-size: 12px;
-  color: var(--dsh-color-text-muted, #666);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .pause {
   font-size: 12px;
-  color: var(--dsh-color-warning, #b06000);
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.openPanel {
+  margin-left: auto;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.openPanel:hover {
+  border-color: var(--dsw-alias-state-business-primary);
+  color: var(--dsw-alias-state-business-primary);
 }
 
 .dag {
@@ -74,17 +90,17 @@
   top: -12px;
   left: 16px;
   right: 16px;
-  border-top: 1px dashed var(--dsh-color-border, #ddd);
+  border-top: 1px dashed var(--dsw-alias-border-l1);
 }
 
 .node {
-  border: 1px solid var(--dsh-color-border, #ddd);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 6px 10px;
   min-width: 140px;
   max-width: 220px;
   text-align: left;
-  background: var(--dsh-color-surface, #fff);
+  background: var(--dsw-alias-bg-layer-1);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -92,28 +108,39 @@
 }
 
 .node:hover {
-  border-color: var(--dsh-color-primary, #3b82f6);
+  border-color: var(--dsw-alias-state-business-primary);
 }
 
-.node[data-selected] {
-  border-color: var(--dsh-color-primary, #3b82f6);
-  box-shadow: 0 0 0 1px var(--dsh-color-primary, #3b82f6);
+.node[data-selected],
+.node[data-focused] {
+  border-color: var(--dsw-alias-state-business-primary);
+  box-shadow: 0 0 0 1px var(--dsw-alias-state-business-primary);
+}
+
+.node[data-dimmed] {
+  opacity: 0.34;
+}
+
+.node {
+  transition: opacity 120ms ease, border-color 120ms ease;
 }
 
 .node[data-state='achieved'] {
-  background: var(--dsh-color-success-soft, #e6f4ea);
+  background: var(--dsw-alias-state-success-tertiary);
 }
 
 .node[data-state='running'] {
-  background: var(--dsh-color-primary-soft, #e8f0fe);
+  background: var(--dsw-alias-state-business-tertiary);
 }
 
 .node[data-state='failed'] {
-  background: var(--dsh-color-error-soft, #fce8e6);
+  /* No error-tertiary token exists; tint the error primary over the surface
+     so the soft fill follows both themes. */
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 12%, var(--dsw-alias-bg-layer-1));
 }
 
 .node[data-state='blocked'] {
-  background: var(--dsh-color-warning-soft, #fef7e0);
+  background: var(--dsw-alias-state-warn-tertiary);
 }
 
 .node[data-final] {
@@ -135,19 +162,43 @@
   white-space: nowrap;
 }
 
+/* The running-work dot matrix: six squares pulsing in a staggered loop
+   (ported from the AgentTeams panel's WorkGlyph, commit 00857a1). */
+.nodeRunning {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 11px;
+  height: 11px;
+  flex: none;
+}
+
+.workGlyph rect {
+  opacity: 0.5;
+}
+
+.workGlyph[data-active='true'] rect {
+  animation: workgraphGlyphDot 1.1s ease-in-out infinite;
+}
+
+@keyframes workgraphGlyphDot {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
 .nodeMeta {
   font-size: 11px;
-  color: var(--dsh-color-text-muted, #666);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .nodeWaiting,
 .nodeFailure {
   font-size: 11px;
-  color: var(--dsh-color-text-muted, #666);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .nodeFailure {
-  color: var(--dsh-color-error, #d93025);
+  color: var(--dsw-alias-state-error-primary);
 }
 
 .legend {
@@ -155,8 +206,8 @@
   flex-wrap: wrap;
   gap: 10px;
   font-size: 11px;
-  color: var(--dsh-color-text-muted, #666);
-  border-top: 1px solid var(--dsh-color-border, #ddd);
+  color: var(--dsw-alias-label-tertiary);
+  border-top: 1px solid var(--dsw-alias-border-l1);
   padding-top: 8px;
 }
 
@@ -167,7 +218,7 @@
 }
 
 .detail {
-  border: 1px solid var(--dsh-color-border, #ddd);
+  border: 1px solid var(--dsw-alias-border-l1);
   border-radius: 6px;
   padding: 8px 10px;
 }
@@ -186,7 +237,7 @@
   background: none;
   cursor: pointer;
   font-size: 12px;
-  color: var(--dsh-color-text-muted, #666);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .detailBody {
@@ -198,10 +249,23 @@
 }
 
 .detailBody dt {
-  color: var(--dsh-color-text-muted, #666);
+  color: var(--dsw-alias-label-tertiary);
 }
 
 .detailBody dd {
   margin: 0;
   word-break: break-word;
+}
+
+.detailDependents {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workGlyph rect {
+    animation: none;
+    opacity: 0.5;
+  }
 }

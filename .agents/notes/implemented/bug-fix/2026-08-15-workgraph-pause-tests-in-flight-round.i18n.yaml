@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-15-workgraph-pause-tests-in-flight-round.md
+2026-08-15-workgraph-pause-tests-in-flight-round.md: 366b91fa329722a4268067b54fa9e014f357d32c
+2026-08-15-workgraph-pause-tests-in-flight-round.zh.md: 54ce9ab098ac8bb06bae1819e0b46f869489252d

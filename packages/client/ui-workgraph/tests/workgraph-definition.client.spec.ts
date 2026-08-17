@@ -108,15 +108,23 @@ function snapshotChange(seq: number, over: Record<string, unknown> = {}): Conver
 }
 
 function completeEvents(): ConversationEventInput[] {
-  const set = snapshotChange(1)
-  const started = snapshotChange(2, {
-    history: [{ at: 1, kind: 'created' }, { at: 2, kind: 'planning-started' }],
+  // Real dispatchSet shape: the first commit already carries BOTH `created`
+  // and `planning-started` (planning begins before the first checkpoint),
+  // so the fixture starts at that two-kind history and appends exactly one
+  // kind per later change — the first event is the unique start, the rest
+  // are updates.
+  const set = snapshotChange(1, {
+    history: [{ at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' }],
   })
   const planned = snapshotChange(3, {
     history: [
-      { at: 1, kind: 'created' }, { at: 2, kind: 'planning-started' },
-      { at: 3, kind: 'planning-completed' },
+      { at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' },
+      { at: 2, kind: 'planning-completed' },
     ],
+    // Every post-creation transition bumps updatedAt (createdAt stays 1);
+    // the history entries a checkpoint adds carry that checkpoint's
+    // updatedAt as their `at` (real payloads share one `now` per checkpoint).
+    updatedAt: 2,
   })
   const achieved = snapshotChange(4, {
     status: 'complete',
@@ -127,12 +135,13 @@ function completeEvents(): ConversationEventInput[] {
     ],
     pendingDiscoveries: [],
     tokensSpent: 18,
+    updatedAt: 3,
     history: [
-      { at: 1, kind: 'created' }, { at: 2, kind: 'planning-started' },
-      { at: 3, kind: 'planning-completed' }, { at: 4, kind: 'completed' },
+      { at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' },
+      { at: 2, kind: 'planning-completed' }, { at: 3, kind: 'completed' },
     ],
   })
-  return [set, started, planned, achieved]
+  return [set, planned, achieved]
 }
 
 describe('workgraph-definition', () => {
@@ -144,6 +153,16 @@ describe('workgraph-definition', () => {
     expect(full!.graphId).toBe('wg-1')
     expect(full!.snapshot!.objective).toBe('ship it')
     expect(full!.historyKinds).toEqual(['created'])
+    expect(full!.createdAt).toBe(1)
+    expect(full!.updatedAt).toBe(1)
+    // Non-number timestamps are omitted from the decode (never coerced).
+    const noStamps = decodeGraphChange({ kind: 'workgraph/change', version: 1, graph: {
+      id: 'wg-1', objective: 'o', status: 'active', planVersion: 1, nodes: [], tokensSpent: 0,
+      createdAt: 'nope', updatedAt: null,
+    } })
+    expect(noStamps).not.toBeNull()
+    expect(noStamps!.createdAt).toBeUndefined()
+    expect(noStamps!.updatedAt).toBeUndefined()
     const clear = decodeGraphChange({ kind: 'workgraph/change', version: 1, operation: 'clear', cleared: 'wg-1', clearedAt: 9 })
     expect(clear).toEqual({ graphId: 'wg-1', cleared: true, historyKinds: [] })
     expect(decodeGraphChange(null)).toBeNull()
@@ -168,10 +187,59 @@ describe('workgraph-definition', () => {
   })
 
   it('recognizes the set commit as the unique start change', () => {
+    // Creation-fact branch (createdAt === updatedAt): the default fixture is
+    // the set commit, whatever its history shape is — including the real
+    // dispatchSet two-kind history and the historyMax=1 truncated shape.
     expect(isGraphStartChange(decodeGraphChange(snapshotChange(1).event.data)!)).toBe(true)
     expect(isGraphStartChange(decodeGraphChange(snapshotChange(2, {
-      history: [{ at: 1, kind: 'created' }, { at: 2, kind: 'planning-started' }],
+      history: [{ at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' }],
+    }).event.data)!)).toBe(true)
+    expect(isGraphStartChange(decodeGraphChange(snapshotChange(3, {
+      history: [{ at: 3, kind: 'planning-started' }],
+    }).event.data)!)).toBe(true)
+    // The same events with a bumped updatedAt are later transitions — never starts.
+    expect(isGraphStartChange(decodeGraphChange(snapshotChange(2, {
+      history: [{ at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' }],
+      updatedAt: 2,
     }).event.data)!)).toBe(false)
+    expect(isGraphStartChange(decodeGraphChange(snapshotChange(3, {
+      history: [{ at: 3, kind: 'planning-started' }],
+      updatedAt: 2,
+    }).event.data)!)).toBe(false)
+    // Fallback for payloads without timestamps: the history shapes.
+    // A lone `created` entry and the real created+planning-started both start;
+    // every later shape (>= 3 kinds, a non-created head, created without
+    // planning-started at length 2) is an update.
+    const stampLess = (over: Record<string, unknown> = {}) =>
+      decodeGraphChange({ kind: 'workgraph/change', version: 1, graph: {
+        id: 'wg-1', objective: 'o', status: 'active', planVersion: 1,
+        nodes: [{ id: 'a', title: 'A', spec: 's', state: 'ready', rounds: 0, blocks: [] }],
+        tokensSpent: 0,
+        ...over,
+      } })!
+    expect(isGraphStartChange(stampLess({ history: [{ at: 1, kind: 'created' }] }))).toBe(true)
+    expect(isGraphStartChange(stampLess({
+      history: [{ at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' }],
+    }))).toBe(true)
+    expect(isGraphStartChange(stampLess({
+      history: [
+        { at: 1, kind: 'created' }, { at: 1, kind: 'planning-started' },
+        { at: 3, kind: 'planning-completed' },
+      ],
+    }))).toBe(false)
+    expect(isGraphStartChange(stampLess({ history: [{ at: 1, kind: 'node-started' }] }))).toBe(false)
+    expect(isGraphStartChange(stampLess({
+      history: [{ at: 1, kind: 'planning-started' }, { at: 1, kind: 'created' }],
+    }))).toBe(false)
+    expect(isGraphStartChange(stampLess({
+      history: [{ at: 1, kind: 'created' }, { at: 1, kind: 'planning-completed' }],
+    }))).toBe(false)
+    // A single timestamp still falls back to the history shapes — in either
+    // direction: createdAt without updatedAt, or updatedAt without createdAt.
+    expect(isGraphStartChange(stampLess({ createdAt: 1, history: [{ at: 1, kind: 'created' }] }))).toBe(true)
+    expect(isGraphStartChange(stampLess({ updatedAt: 2, history: [{ at: 1, kind: 'created' }] }))).toBe(true)
+    // A snapshot-less record is not a start, and neither is a clear tombstone.
+    expect(isGraphStartChange({ graphId: 'wg-x', cleared: false, historyKinds: [] })).toBe(false)
     expect(isGraphStartChange(decodeGraphChange({ kind: 'workgraph/change', version: 1, operation: 'clear', cleared: 'wg-1', clearedAt: 9 })!)).toBe(false)
   })
 
@@ -212,6 +280,7 @@ describe('workgraph-definition', () => {
       nodes: [node(A, 'A2', 'ready', []), node(FINAL, 'Final verification', 'waiting', [A], { final: true })],
       history: [{ at: 5, kind: 'created' }],
       createdAt: 5,
+      updatedAt: 5,
     })
     const value = assembler([...completeEvents(), second])
     const nodes = [...(value.snapshot('chat') as ChatSnapshot).nodes.values()]
@@ -290,8 +359,60 @@ describe('workgraph-definition', () => {
 
   it('issues exactly one start per graph (the engine would reject a second)', () => {
     // The fold tests above already exercise the full lifecycle; this
-    // documents the invariant the single `created`-history start relies on.
+    // documents the invariant the set-commit start relies on: only the set
+    // event has createdAt === updatedAt, so exactly one start per graph.
     const starts = completeEvents().filter(event => isGraphStartChange(decodeGraphChange(event.event.data)!))
     expect(starts).toHaveLength(1)
+  })
+
+  it('materializes the DAG from the real dispatch event stream (regression: the set commit carries created+planning-started)', () => {
+    // Real scheduler payloads, captured from a live run: dispatchSet commits
+    // the pending graph with BOTH `created` and `planning-started` in the
+    // FIRST change's history (planning begins before the first checkpoint),
+    // then planning-completed on install, then node-started. The first event
+    // is the set commit (createdAt === updatedAt) and must materialize the
+    // chat node; later events bump updatedAt and must update it live —
+    // a folded DAG that silently stays absent is this regression.
+    const set = snapshotChange(1, {
+      nodes: [],
+      history: [
+        { at: 1, kind: 'created' },
+        { at: 1, kind: 'planning-started' },
+      ],
+    })
+    const planned = snapshotChange(2, {
+      history: [
+        { at: 1, kind: 'created' },
+        { at: 1, kind: 'planning-started' },
+        { at: 2, kind: 'planning-completed' },
+      ],
+      updatedAt: 2,
+    })
+    const running = snapshotChange(3, {
+      nodes: [
+        node(A, 'A', 'running', []),
+        node(B, 'B', 'waiting', [A]),
+        node(FINAL, 'Final verification', 'waiting', [A, B], { final: true }),
+      ],
+      history: [
+        { at: 1, kind: 'created' },
+        { at: 1, kind: 'planning-started' },
+        { at: 2, kind: 'planning-completed' },
+        { at: 3, kind: 'node-started' },
+      ],
+      updatedAt: 3,
+    })
+    const live = assembler([set])
+    expect(graphData(live)?.status).toBe('active')
+    live.append(planned)
+    live.flush()
+    expect(graphData(live)?.layers.flat().length).toBe(3)
+    live.append(running)
+    live.flush()
+    expect(graphData(live)?.status).toBe('active')
+    expect(graphData(live)?.layers.flat().find(entry => entry.id === A)?.state).toBe('running')
+    // The same stream reconstructs identically on reload.
+    const replay = assembler([set, planned, running])
+    expect(graphData(replay)).toEqual(graphData(live))
   })
 })

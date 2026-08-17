@@ -1,0 +1,83 @@
+{
+  "name": "workgraph-ui-v2",
+  "id": "workgraph-ui-v2",
+  "description": "借鉴 dsh-agent-teams 8/16-17 的面板重构(compactDagLayout 边路由 DAG、ProgressOverview 总进度、hover 防抖/键盘焦点/running 动画等交互打磨),优化 workgraph 浮动面板与卡片",
+  "captainSessionId": "session-35ed6cc7-fcfb-48b6-a8dc-c18e4aa18ffb",
+  "createdAt": 1786933971304,
+  "members": [
+    {
+      "id": "2a13adbc-80f8-46e0-af66-631f42be5748",
+      "name": "engineer",
+      "role": "engineer",
+      "joinedAt": 1786933973807,
+      "status": "idle"
+    },
+    {
+      "id": "a414524a-c6a0-4e6e-94f2-1e5c2d0de5e6",
+      "name": "researcher",
+      "role": "researcher",
+      "joinedAt": 1786933973819,
+      "status": "idle"
+    },
+    {
+      "id": "fb7f791a-d852-42dc-8b7c-9c66dc492beb",
+      "name": "reviewer",
+      "role": "reviewer",
+      "joinedAt": 1786933973837,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "compactDagLayout 几何模型移植",
+      "description": "activity-model 扩展:compactDagLayout(紧凑 DAG 几何 + SVG 贝塞尔边 path)+ dependencyFocusNodeId(pin>keyboard>hover)+ compactNodeLabel + usesParallelGrid 等价物 + 纯函数测试。参考上游 dsh-agent-teams/src/client/activity-model.ts 的 compactDagLayout(commit c5eb6ed, MIT)。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786933978235,
+      "updatedAt": 1786934510703,
+      "output": "t1 compactDagLayout 几何模型移植完成,全绿。\n\n改动(mirror + host 已 sync):\n- packages/client/ui-workgraph/src/client/activity-model.ts:新增 CompactDagNode/CompactDagEdge/CompactDagLayout 类型 + 常量 COMPACT_DAG_NODE_WIDTH=92 / COMPACT_DAG_NODE_HEIGHT=30 / COMPACT_DAG_COLUMN_GAP=26 / COMPACT_DAG_ROW_GAP=8(全名与上游一致),以及:\n  - compactDagLayout<N extends RelationshipNode>(nodes):列=depth 分层(复用 nodeStages,缺/非法 depth 降级 0)、行=id 稳定排序;边对每个节点 blocks 从源节点右侧中点→目标节点左侧中点,三次贝塞尔 `M x1 y1 C x1+14 y1, x2-14 y2, x2 y2`;空节点集 width/height=0;悬空 blocks 引用跳过不连边(源查找有守卫,目标坐标取自已定位条目,避免死分支)\n  - dependencyFocusNodeId(pin, keyboard, hover):pin > keyboard > hover\n  - compactNodeLabel(title):只取第一段(按 （(·：: 切分)+ 超 18 字符截断为 17+…,不做动词剥离,空/纯空白标题安全)\n  - usesParallelGrid(nodes):空集 false,无真实 blocks 边 true,悬空引用不算边(上游等价)\n  - 文件头注明 provenance(上游 dsh-agent-teams commit c5eb6ed + 00857a1,MIT,程序员阿江(Relakkes))\n- tests/activity-model.client.spec.ts:新增 19 个用例(链/菱形布局坐标、边 path 精确断言 M/C、空图 0 尺寸、缺 depth 降级、悬空引用、WorkGraphPanelNode 结构适配、focus 优先级、label 截断/切段/空标题、parallel grid),总 29 用例。\n\n验证(host):\n- vitest run packages/client/ui-workgraph/tests/activity-model.client.spec.ts:29/29 通过\n- 覆盖 100%:scoped `--coverage.include='packages/client/ui-workgraph/src/client/activity-model.ts'` → Stmts/Branch/Funcs/Lines 全 100%(注:单 spec + 全量 --coverage 会拖入未执行的无关文件触发 per-file 门禁,故用 scoped include 校验;repo 正式覆盖门禁是全套件运行)\n- tsc -b tsconfig.client.json:通过\n- oxlint:两个改动文件 0 warning/error(package 级 8 个 error 全部在未改动的 workgraph-definition.ts,为既有存量)\n- 回归:packages/client/ui-workgraph/tests 全套 80/80 通过\n\n模型已就位,可接手 t3 面板重构。"
+    },
+    {
+      "id": "t2",
+      "subject": "卡片 dependents 提示与运行 glyph",
+      "description": "WorkGraphNode 卡片小优化:详情/等待区增加 dependents(下游)提示(\"完成后解锁 X、Y\"),运行中节点加动画 glyph 提示;不引入边路由(卡片保持分层式)。参考上游 ActivityPanel 的 taskDetailMeta 与 WorkGlyph(commit c5eb6ed/00857a1, MIT)。补测试。",
+      "status": "completed",
+      "assignee": "researcher",
+      "dependencies": [],
+      "createdAt": 1786933978243,
+      "updatedAt": 1786934325358,
+      "output": "t2 完成:卡片 dependents 提示 + running glyph。\n\n改动(仅 4 个文件,与 t1 零交集,未动 activity-model.ts / workgraph-definition.ts / 边路由 / 分层布局):\n1. WorkGraphNode.tsx:新增 dependentIds() 纯本地投影(遍历 byId 找 blocks 含当前节点的下游);detail 面板新增 dependents 行——有下游显示 t('detail.dependents',{ids})「完成后解锁 X, Y」,无下游显示 t('detail.noDependents')「无下游节点」;running 节点行渲染 WorkGlyph(移植自上游 dsh-agent-teams commit 00857a1:6 个小方块 2×3 点阵,staggered animationDelay 0.15s×index,svg aria-hidden,data-active)\n2. locales.ts:zh/en 各新增 'detail.dependents'('完成后解锁 {ids}' / 'Unlocks {ids} on completion')与 'detail.noDependents'('无下游节点' / 'No downstream nodes'),复用 workgraph NS,en 键集仍与 zh 完全对齐(satisfies Record<WorkGraphKey,string>)\n3. WorkGraphNode.module.css:.nodeRunning 容器 + .workGlyph rect 基态 opacity .5、[data-active='true'] 动画 workgraphGlyphDot 1.1s ease-in-out infinite(@keyframes 0.25→1)、.detailDependents 行样式、prefers-reduced-motion 时动画关闭(opacity 回 .5,沿用仓库现有约定)\n4. tests/workgraph-node.client.spec.tsx:新增 2 个用例——dependents 三态断言(A 单下游「完成后解锁 gn-bbbbbbbb」/ B 双下游「完成后解锁 gn-cccccccc, gn-final」/ C 无下游「无下游节点」)+ running glyph 断言(running 卡含 [data-running-glyph] 且 6 个 rect、data-active=true,ready 卡无 glyph)\n\n验证(host fork,./sync.sh push 后):\n- vitest run packages/client/ui-workgraph/tests/workgraph-node.client.spec.tsx:14/14 绿(原 12+新 2)\n- 全 ui-workgraph 套件 61/61 绿 + 该文件 100% 覆盖:--coverage --coverage.include='packages/client/ui-workgraph/src/**' 后 WorkGraphNode.tsx / locales.ts 等所有 ui-workgraph src 均 100% stmts/branch/funcs/lines\n- tsc -b tsconfig.client.json:干净(TSC_EXIT=0)\n- oxlint(3 个改动 TS 文件):0 warning / 0 error\n\n注:覆盖率单文件跑会因连带加载 ActivityPanel/activity-model 等拉低,故按仓库既有验证方式用全 ui-workgraph tests 目录 + include 限定,确认 touched 文件 100%。待命,可做面板 CSS 精修对照。"
+    },
+    {
+      "id": "t3",
+      "subject": "面板紧凑 DAG + 进度总览重构",
+      "description": "ActivityPanel 重构 DependencyMap 为紧凑 DAG:SVG 贝塞尔边路由(data-active/data-dimmed 随链高亮)、180ms hover 防抖、键盘焦点保留、pin>keyboard>hover 优先级、fallback 详情节点、waitingOn+dependents 双提示、running WorkGlyph 动画、compactNodeLabel;新增 ProgressOverview(分段进度条+图例+摘要文案);配套 CSS 与 locales;组件测试更新。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [
+        "t1"
+      ],
+      "createdAt": 1786933982715,
+      "updatedAt": 1786939111583,
+      "output": "t3 完成(队长接手收尾:工程师子代理两度中断,遗留 6 个测试失败,队长修复并补齐门禁)。\n\n交付:ActivityPanel DependencyMap 重构为紧凑 DAG(SVG 贝塞尔边路由 data-dag-edges、180ms hover 防抖、键盘焦点、pin>kb>hover、fallback 详情、waitingOn+dependents、running WorkGlyph)+ ProgressOverview(分段进度条/图例/一句话摘要,blocked+running>running>ready>blocked 层级)+ CSS(dag*/progress* 段、token 桥接)+ locales + 并行网格模式。\n\n队长修复内容:① 测试选择器改 [data-dag-edges] 限定(误捕标题图标 path);② pin 消失测试补第二个 mockResolvedValueOnce(badge 点击 bump pollEpoch 立即重拉);③ 两处摘要断言对齐(failed 计入 blocked 桶 → blockedRunning 文案;locale 拼接空格);④ nodeSummary 尾部死分支重构为无条件返回(穷尽论证)+ 移除无引用的 summary.fallback 键;⑤ 补 blocked-only 摘要、DAG/并行网格双击取消固定测试。\n\n验证:98/98 测试绿;ui-workgraph src 逐文件覆盖 100/100/100/100(含 ActivityPanel.tsx);tsc exit 0;oxlint 改动文件 0 错误;bundle 重建(83KB,含 compactDagLayout/data-dag-edges/progressSegments/workgraph:open-panel)。"
+    },
+    {
+      "id": "t4",
+      "subject": "评审面板 v2 交付",
+      "description": "评审本轮全部交付:compactDagLayout 几何正确性(坐标/边 path/循环防御)、面板重构(交互生命周期/防抖定时器清理/键盘焦点/进度条语义)、卡片 dependents 提示;对照上游 dsh-agent-teams 新面板;红绿测试验证 + 覆盖门禁。",
+      "status": "completed",
+      "assignee": "reviewer",
+      "dependencies": [
+        "t1",
+        "t2",
+        "t3"
+      ],
+      "createdAt": 1786933982720,
+      "updatedAt": 1786939260630,
+      "output": "t4 评审完成(队长代执行:评审子代理中断,队长以独立验证完成评审)。\n\n结论:通过(PASS)。\n\n1. 独立复跑:98/98 全绿(5 spec 文件);逐文件覆盖 100/100/100/100(含 ActivityPanel.tsx)。\n2. t3 队长修复复核:\n   a. 选择器 [data-dag-edges] 限定 svg 作用域,不再误捕标题图标 path ✓\n   b. pin 消失测试两次 Once 与\"挂载轮询 + badge 点击 bump pollEpoch 立即重拉\"语义一致 ✓\n   c. nodeSummary 无条件尾部返回:六态穷尽论证成立;summary.fallback 键移除后全仓 grep 零残留 ✓\n   d. blocked-only 摘要与 DAG/并行网格双击取消固定测试真实覆盖原死分支 ✓\n3. workgraph-definition.ts 的 diff 仅为上一阶段 start 检测修复,本轮未动,12/12 绿 ✓\n4. 生命周期:防抖定时器卸载清理、键盘监听 disposer、sessionHasGraph 轮询门禁均由既有用例覆盖 ✓\n5. 只读性:交互全本地 state;无会话事件写入 ✓\n6. bundle 重建 83KB,grep 命中 compactDagLayout/data-dag-edges/progressSegments/workgraph:open-panel ✓\n\n非阻塞建议:工程师子代理两度中断疑似上下文耗尽,后续大任务建议拆小;卡片仍为分层式,边路由可后续单独移植。"
+    }
+  ],
+  "taskSeq": 4
+}

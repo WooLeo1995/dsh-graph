@@ -1,0 +1,162 @@
+{
+  "name": "workgraph-live-ui",
+  "id": "workgraph-live-ui",
+  "description": "修复 workgraph 客户端 start 检测 bug 让 DAG 实时渲染(已复现为红测试),并参考 AgentTeams 交换逻辑设计实时运行界面的改进建议",
+  "captainSessionId": "session-35ed6cc7-fcfb-48b6-a8dc-c18e4aa18ffb",
+  "createdAt": 1786786448541,
+  "members": [
+    {
+      "id": "fe1d0a36-5559-4b32-9b41-4ca6e07da34e",
+      "name": "engineer",
+      "role": "engineer",
+      "joinedAt": 1786786450586,
+      "status": "idle"
+    },
+    {
+      "id": "c4d1158e-3b0c-4be7-9ab0-d40e41e92943",
+      "name": "researcher",
+      "role": "researcher",
+      "joinedAt": 1786786450608,
+      "status": "idle"
+    },
+    {
+      "id": "d3abebfa-1b07-48aa-928d-31ed8f08bc51",
+      "name": "reviewer",
+      "role": "reviewer",
+      "joinedAt": 1786786450630,
+      "status": "idle"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "t1",
+      "subject": "实现 isGraphStartChange 修复并重建 bundle",
+      "description": "实现 workgraph 客户端 start 检测修复:1) 修改 mirror 仓库 /Users/wutianyu/Downloads/company/ca/gitlab/dsh-graph/packages/client/ui-workgraph/src/client/workgraph-definition.ts 的 isGraphStartChange,接受 history 恰好为 ['created'] 或恰好为 ['created','planning-started'] 两种形状;2) 同步重塑测试 fixture;3) ./sync.sh push 到宿主 /Users/wutianyu/Downloads/project/github/deepseek-harness;4) 跑全套 ui-workgraph 测试(必须全绿,含新增回归测试);5) lint + typecheck;6) 重建宿主 client bundle(tsc -b + tsdown --env.DSH_BUILD_FACE client);7) 报告结果。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786786454758,
+      "updatedAt": 1786786659906,
+      "output": "## 修复完成:workgraph 客户端 start 检测 bug\n\n### 代码改动(mirror → sync.sh push → host)\n**`packages/client/ui-workgraph/src/client/workgraph-definition.ts`** — 唯一代码改动:\n- `isGraphStartChange` 现在同时接受 `['created']` 和 `['created','planning-started']`(dispatchSet 真实首提交)为 start;新增 JSDoc 写入安全性论证('created' 每图仅追加一次、后续事件历史至少多一个 kind、history cap 只从头部驱逐 ⇒ 后续事件不可能恰好等于这两个形状,不会双重 start,真实形状不漏判)。\n\n**`packages/client/ui-workgraph/tests/workgraph-definition.client.spec.ts`**:\n- `completeEvents()` 重塑为真实形状:set(1) history=[created,planning-started];删除原 started 事件;planned(3)=[created,planning-started,planning-completed];achieved(4) 不变;返回 [set,planned,achieved]。\n- \"recognizes the set commit\" 测试更新:['created']→true、['created','planning-started']→true、长度3→false;并补直接分支断言(长度1非created头、长度2非created头、['created','planning-completed']、无 snapshot、clear → 均 false)。\n- 队长新增的第12个回归测试原样保留,未改动。\n\n### 验证结果\n- 测试:`vitest run packages/client/ui-workgraph/tests` → 3 文件 21/21 全绿(definition 12、node 7、browser-plugin 2)。workgraph-node / browser-plugin 两个 spec 不使用 history 形状,未受影响。\n- 覆盖(逐文件100%):`workgraph-definition.ts` = Stmts 100 / Branch 100 / Funcs 100 / Lines 100,无未覆盖行;跑完整 ui-workgraph 测试集时包内所有文件(WorkGraphNode.tsx、index.ts、locales.ts 等)均 100%。\n- lint:`tsx scripts/run-oxlint.ts packages/client/ui-workgraph` 报 11 个错误,**全部为既有问题,与本次改动无关**(git diff 确认我的 diff 仅 isGraphStartChange 一处):workgraph-definition.ts 第 96/143/144/146/171/269/271/275 行、WorkGraphNode.tsx 第 111/146 行、browser-plugin.client.spec.tsx 第 37 行。直接跑 oxlint 结果一致。建议另开清理任务。\n- 类型检查:`tsc -b packages/client/ui-workgraph` exit 0。\n- bundle 重建:`tsc -b && tsdown --env.DSH_BUILD_FACE client` 成功;`lib/client.js` mtime 16:57 → **17:37**(23803→24482 字节),grep 含 4 处 \"planning-started\",编译产物含新逻辑 `kinds.length === 1 && kinds[0] === \"created\" || kinds.length === 2 && kinds[0] === \"created\" && kinds[1] === \"planning-started\"`。\n- 未 git commit(按惯例留在工作树)。\n\n### 未决事项\n1. 11 个既有 oxlint 错误(见上),建议独立任务清理。\n2. README.md / README.zh.md 第 12 行仍描述旧的\"exactly one created history entry\"规则,可选文档跟进(未擅自改动,因简报限定唯一代码改动)。"
+    },
+    {
+      "id": "t2",
+      "subject": "研究 AgentTeams 交换逻辑作为 workgraph 实时 UI 参考",
+      "description": "研究 DSH harness 中 AgentTeams(agent_teams_*)的实时交换机制与 GUI 表现,产出设计笔记(写在 mirror 仓库 .scratch/workgraph/ 下),说明 workgraph 实时 DAG 界面可借鉴的交换语义。",
+      "status": "completed",
+      "assignee": "researcher",
+      "dependencies": [],
+      "createdAt": 1786786454765,
+      "updatedAt": 1786787056725,
+      "output": "笔记已深化并更新:.scratch/workgraph/live-ui-exchange.md(172 行,中文,含 file:line 证据表;t2 第二轮,按队长补充指路深化)。新增/更新要点:(1) §1.7 定点答疑——STATE_URL=/plugins/dsh-agent-teams/state,由 host 半插件 webServer.register({kind:'exact'}) 注册(懒绑定),返回 {teams:[snapshot]}(成员 activity/progress/currentTask/unread + 任务 status/state/depth + captainInbox),面板 1000ms/卡片 1500ms 轮询 no-store,无 SSE/WebSocket 推送(useSyncExternalStore 只订阅当前会话 id,团队数据纯 fetch);分工=卡片走事件折叠做持久化锚点(身份/存在),面板走轮询做实时内容,二者解耦。(2) §3.5 新事实——graphId 在 scheduler 只有一处构造 WorkGraphId(randomUUID())(scheduler.ts:694),因此\"该 graphId 的首个匹配\"按构造就是 start,history 双形状只是防御判别,建议客户端 start 规则简化为按 key 首个匹配(与 AgentTeams tool/call 锚定同思路);revive 路径发现:status() 只读复活(readProject,restoreSnapshot 原样保留 history、降级 user_paused)不 commit → 新会话无 workgraph/change 事件 → DAG 卡不出现(可见性缺口,非 start 误判),resume 拒绝复活图;若未来 revive 自动提交恢复事件,长 history 会触发 update-before-start 静默失败——设计警告。(3) §4.1 建议更新:新增 d(首事件即 start 的形状无关规则,优先采用)、f(revive 可见性回归测试);§4.2 新增 e(增量节点状态交换,仅在事件率成为问题时)。未运行 sync.sh。"
+    },
+    {
+      "id": "t3",
+      "subject": "评审 start 检测修复",
+      "description": "评审工程师的修复:检查 mirror 仓库 packages/client/ui-workgraph 的 git diff,验证 isGraphStartChange 新规则不会双重 start、不会漏判真实形状,fixture 与真实 scheduler 载荷一致,新分支有测试覆盖,无 lint/type 错误。产出评审结论。",
+      "status": "completed",
+      "assignee": "reviewer",
+      "dependencies": [
+        "t1"
+      ],
+      "createdAt": 1786786457902,
+      "updatedAt": 1786787041332,
+      "output": "评审结论:通过(PASS)。独立验证(非复述工程师报告):在 host fork 上实测 12/12 测试通过;把旧规则(isGraphStartChange 仅匹配 ['created'])回放到新测试上,5 个用例失败,其中回归测试报 \"expected undefined to be 'active'\"(DAG 静默缺席)——证明红测试真实、修复真实有效。\n\n【1 不会双重 start — 通过】history 是纯追加 + 仅头部驱逐(appendHistory, tracker.ts:38-47,cap 默认 64)。start 形状 ['created'] / ['created','planning-started'] 要求保留尾部=全量历史(created 是第 1 条,驱逐只从头删),任何后续事件全量历史 ≥3 条。逐一推演了全部提交路径:installPlanIntoGraph(+planning-completed)、pauseGraph(+paused)、pausePlanningFailed(+planning-failed)、resumeGraph(+resumed)、budgetLimit(+budget-exceeded)、markRunning(+node-started)、settleAchieved(+node-achieved[±completed/paused/budget-exceeded])、settleFailed/settleMergeFailed(+node-failed)、demoteRunningToReady/retryNodes/retryAllNodes(+node-retried)、installReplan/drainDiscoveries(+replanned)、applyOptimization(+optimized)——全部追加。两个不追加历史的函数:queueDiscoveries 只在 settleAchieved 之后调用(rounds.ts:200-204,历史已含 node-achieved);restoreSnapshot 只用于项目文件复活读取,不产生会话日志事件。引擎 \"more than one start\" 抛错已在 dsh-client-runtime lib/client.js:6548 核实。唯一理论上的同历史提交:retryAllNodes 无失败节点时返回原 snapshot(tracker.ts:683-684),但 command-workgraph/src/index.ts:532 有 before===0 前置守卫,产品流不可达(建议后续在 dispatchRetryAll 内加防御,非阻塞)。\n\n【2 不会漏判 — 通过】dispatchSet 首提交=createPendingGraph → history 恰为 [created,planning-started](tracker.ts:141-144, scheduler.ts:713 提交)→ 命中 arm 2;阻塞 set() 走同一 dispatchSet;initializeGraph → [created](tracker.ts:107)→ 命中 arm 1。生产所有首提交均被覆盖。\n\n【3 fixture 与真实载荷一致 — 通过(轻微出入)】history 序列与 at 值对照 tracker.ts 验证:createPendingGraph 两条目同 at(与 fixture at:1/at:1 一致)、installPlanIntoGraph +planning-completed、markRunning +node-started 均吻合。轻微出入:回归测试注释称 \"captured from a live run\",但 fixture 继承了 snapshotChange 默认的 pendingDiscoveries:[1 项] 与 tokensSpent:3,与真实 createPendingGraph 的 []/0 不同——对 start 判定与折叠断言无影响。\n\n【4 测试覆盖 — 通过】新断言覆盖:['created']→true、['created','planning-started']→true、3 元→false、['node-started']→false、['planning-started','created']→false、['created','planning-completed']→false、[]→false、clear 墓碑→false。删除的 started 事件无语义丢失:其形状(created+planning-started)在新规则下正是 start,旧测试在该形状上断言 false 与新规则矛盾,reshape 是必须的;planning 进行中状态由回归测试 set 事件与直接 true 断言覆盖;replay/live-append 等价覆盖两处。红/绿双向验证通过。\n\n【5 代码质量 — 通过,附两处过期注释】isGraphStartChange 的 JSDoc 论证逐条核实准确(created 每图仅追加一次、后续事件必追加、头部驱逐不复活 start 形状)。命名/风格与文件惯例一致。小问题(不阻塞):① workgraph-definition.ts:253-254 内联注释仍写 \"recognizable by its single `created` history entry\",与双形状新规则不符;② 测试文件 workgraph-definition.client.spec.ts:310-312 注释 \"the single `created`-history start\" 同样过期。建议后续顺手更正。"
+    },
+    {
+      "id": "t4",
+      "subject": "start 检测防御 historyMax 截断边界",
+      "description": "追加防御:start 检测增加 createdAt===updatedAt 创建事实判别,覆盖 historyMax=1 时 history 被 cap 截断的漏判;同步语义化测试 fixture;重建宿主 bundle。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786786977876,
+      "updatedAt": 1786787178369,
+      "output": "## t4 完成(含评审追加项):start 检测的 historyMax 截断防御\n\n### diff 摘要(唯一文件 `workgraph-definition.ts` + 其 spec)\n**src**:\n- `DecodedGraphChange` 新增顶层可选 `createdAt?/updatedAt?: number`(未放入 WorkGraphStateData/WorkGraphChatData,chat payload 不变)。\n- `decodeGraphChange` graph-bearing 分支读取 `createdAt/'updatedAt'`,仅 typeof number 时带上。\n- `isGraphStartChange`:优先创建事实判别 `createdAt === updatedAt`(仅 set 提交成立,所有后续转换都 bump updatedAt,与 historyMax 无关);缺任一时间戳回退 t1 双形状。JSDoc 同步。\n- **追加项(过期注释)**:`match` 内联注释更新为新语义 —— \"Exactly one start per graph: the set commit is the creation fact (createdAt === updatedAt); payloads without timestamps fall back to the `created`-headed history shapes. Every later transition bumps updatedAt, so no later event can match a start again.\"\n\n**spec**:\n- `completeEvents`:planned → updatedAt:2、achieved → updatedAt:3。\n- 回归测试:planned → updatedAt:2、running → updatedAt:3。\n- `keeps separate nodes` wg-2 补 updatedAt:5(否则 createdAt≠updatedAt 漏判 start,测试必红)。\n- \"recognizes\" 测试:创建事实分支(双形状 1/1 → true;updatedAt 更大 → false);**historyMax=1 截断形状**(['planning-started'] + 1/1 → true;updatedAt:2 → false);回退分支用无时间戳真实 decode 载荷(双形状 true / 长度3 / 非 created 头 / ['created','planning-completed'] → false;仅 createdAt 无 updatedAt → 回退 true);snapshot-less 与 clear → false。\n- decode 测试补时间戳提取与省略断言。\n- 注释已核对:one-start 测试与回归测试注释在 t4 已更新为创建事实语义,无需再改。\n\n### 验证结果\n- 测试:3 文件 **21/21 全绿**(注释改动后复跑确认)。\n- 覆盖:workgraph-definition.ts 四维均 100,整包逐文件 100%。\n- lint:仍为 11 个既有错误,零新增(注释改动无 lint 风险)。\n- 类型检查:`tsc -b` exit 0。\n- bundle:`lib/client.js` mtime 17:45,含 createdAt===updatedAt 判别(注释改动无功能影响,未重 build)。\n- 最终 push 完成,src/spec 两文件 mirror↔host md5 一致。\n\n### 评审防御性建议(已记录,不实现,未改 scheduler)\nreviewer 指出:dispatchRetryAll 在无失败节点时返回原 snapshot,若未来有调用方绕过 command 层 before===0 守卫直接调用 dispatchRetryAll,会在新图上产生\"同历史第二事件\",触发双重 start(与 t4 修复同源:首事件 history 形状被复制)。当前产品流不可达(before 守卫在 command 层),暂不实现防御;此风险已确认并记录,请队长写入笔记。若未来暴露该入口,建议在 dispatchRetryAll 无操作分支同样 bump updatedAt,或复用创建事实判别做幂等。"
+    },
+    {
+      "id": "t5",
+      "subject": "复审 t4 historyMax 防御",
+      "description": "复审 t4 的 historyMax 截断防御改动,重点验证 createdAt===updatedAt 判别的安全性(所有非 set 提交路径都 bump updatedAt)、回退分支覆盖、fixture 语义化正确性。",
+      "status": "completed",
+      "assignee": "reviewer",
+      "dependencies": [],
+      "createdAt": 1786787149496,
+      "updatedAt": 1786787324525,
+      "output": "复审结论:通过(PASS)。独立验证:host fork 上 12/12 测试通过;将 isGraphStartChange 回退到 t3 的纯历史形状规则(去掉创建事实分支),t4 测试恰好 1 个失败(\"expected false to be true\"——historyMax=1 截断形状 ['planning-started'] + createdAt===updatedAt 被漏判),证明新分支被真实测试覆盖、防御真实有效。\n\n【1 创建事实判别安全性 — 通过】独立清点:tracker.ts 全部 15 个转换函数、17 处 updatedAt:now 赋值(initializeGraph:111、createPendingGraph:148、installPlanIntoGraph:183、pauseGraph:213、pausePlanningFailed:243、resumeGraph:281、budgetLimit:328、demoteRunningToReady:363、queueDiscoveries:389、markRunning:421、settleAchieved:473/488 两分支、settleMergeFailed:537、settleFailed:626、resetBatch[retryNodes/retryAllNodes]:752、restoreSnapshot:771/778 两分支);外加 replan.ts installReplan:161、drainDiscoveries:187、optimizer.ts applyOptimization:415,共 20 处。逐路径核对产生 session 事件的提交:调度器全部 17 个 commit 点(scheduler.ts:263/331/385/425/475/480/488/610/620/624/638/713/753/811/840/867/880)均来自上述 bump 函数;rounds.ts 11 处 commit 全部经 markRunning/settleAchieved/settleFailed/demoteRunningToReady/pauseGraph;parallel.ts settleMergeFailed;serial.ts budgetLimit。不产生新快照的返回:queueDiscoveries 空列表(仅 settleAchieved 之后调用,历史与 updatedAt 已由 settleAchieved bump)、drainDiscoveries 零条目(调用方有 pendingDiscoveries>0 守卫)、retryAllNodes 无失败节点(tracker.ts:683-684 返回原快照→dispatchRetryAll 会提交同历史事件,但 command-workgraph/src/index.ts:532 有 before===0 前置守卫,产品流不可达)。restoreSnapshot 仅用于项目文件复活读取(project.ts:177,status()),不产生会话事件。同毫秒碰撞(后续事件 updatedAt===createdAt)不可能:set 提交后首个后续提交至少隔一个 planning episode;fold.ts:290-291/340-343 还强制 updatedAt>=createdAt 且单调不减、createdAt 不可变。commitWorkGraphChange(commit.ts:24)原样写入快照,时间戳必然进入会话日志。\n\n【2 回退分支可达性 — 通过】decode 防御正确:`...(typeof createdAt === 'number' ? { createdAt } : {})`(workgraph-definition.ts:170-171),非 number 一律省略为 undefined,测试 lines 157-163(createdAt:'nope'、updatedAt:null)验证。任一缺失即走回退:createdAt 单独存在(测试 line 236)→ 回退双形状。注意:fold.ts:248-250 严格解码要求双时间戳,故当前所有真实载荷必走创建事实分支,回退分支只服务 legacy/外来数据——JSDoc 表述准确。updatedAt 单独存在(无 createdAt)未显式测试,代码行为正确(回退),属可选补充。\n\n【3 双 start 仍不可能 — 通过】创建事实分支:仅 set 提交 createdAt===updatedAt(所有转换 bump,无操作提交被守卫);historyMax=1 截断形状(['planning-started']+1/1)命中创建事实分支(测试 lines 195-197 true),bump 后 false(lines 203-206)。回退分支:与 t3 相同证明(纯追加+头部驱逐,后续事件保留尾部=全量历史≥3 条)。引擎 \"more than one start\" 抛错未变(runtime lib/client.js:6548)。同 id 二次 set 不可能(randomUUID+WORKGRAPH_ALREADY_EXISTS)。遗留说明(非阻塞):legacy 载荷+historyMax=1 时回退分支无法识别截断首提交(['planning-started'] 无时间戳→非 start)——可接受,当前载荷必带时间戳。\n\n【4 fixture 语义化 — 通过】snapshotChange 默认 createdAt:1/updatedAt:1 与真实 createPendingGraph/initializeGraph 一致;wg-2 补丁 createdAt:5+updatedAt:5 正确(真实第二图首提交同值),且使该图走创建事实分支而非回退;completeEvents set(1/1)、planned(updatedAt:2)、achieved(updatedAt:3)正确。轻微出入(不阻塞):completeEvents 的 planned history planning-completed at:3 但 updatedAt:2、achieved completed at:4 但 updatedAt:3——真实载荷中追加条目的 at 与 updatedAt 同源(同一 now);对 start 判定无影响(解码不做交叉校验),建议顺手对齐。回归测试 set 的 pendingDiscoveries:[1]/tokensSpent:3 与真实 createPendingGraph 的 []/0 不同(t3 已记录,仍不影响)。\n\n【5 注释 — 通过】match 内联注释(workgraph-definition.ts:271-274)已更新为创建事实+回退表述,无残留 \"single created history entry\"(全仓 grep 无匹配);isGraphStartChange JSDoc(185-200)论证逐条核实准确(所有转换 bump updatedAt、createdAt===updatedAt 仅在 set 提交、historyMax 截断无关、回退形状安全性同 t3);测试注释(lines 356-359)同步更新。\n\n总结:通过。新增创建事实判别是 historyMax 截断的稳健防御,红/绿双向验证成立;无阻塞问题,仅 3 条非阻塞建议(① completeEvents at/updatedAt 对齐;② dispatchRetryAll 内加 no-op 守卫;③ 可补 updatedAt 单独存在测试)。"
+    },
+    {
+      "id": "t6",
+      "subject": "t5 非阻塞建议收尾",
+      "description": "按 t5 复审的非阻塞建议收尾:① completeEvents fixture 的 history at 与 updatedAt 对齐(真实载荷中同 now);③ 补时间戳缺一(updatedAt 单独存在/createdAt 单独存在)的回退测试。完成后复跑全套测试确认全绿。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786787337929,
+      "updatedAt": 1786787397671,
+      "output": "## t6 完成:t5 非阻塞建议收尾\n\n### 改动(仅 `tests/workgraph-definition.client.spec.ts`,mirror → push → host)\n1. **completeEvents 的 history `at` 与 updatedAt 对齐**(真实载荷语义:一个 checkpoint 内新增 history 条目的 `at` == 快照 updatedAt,同一个 now):\n   - set(1):created/planning-started at=1 ↔ updatedAt 1(原已对齐)。\n   - planned(3):planning-completed 的 at 3 → **at 2**(对应 updatedAt 2);注释补充\"history 条目 `at` 与 checkpoint 的 updatedAt 同源\"。\n   - achieved(4):planning-completed at 3 → **at 2**、completed at 4 → **at 3**(对应 updatedAt 3)。\n   - 回归测试(第12个)的 history at 已天然对齐(set 1/1、planned 1,1,2↔2、running 1,1,2,3↔3),无需改动。\n2. **时间戳缺一回退测试**:在 \"recognizes\" 测试的 stampLess 组补断言——updatedAt 存在但 createdAt 缺失 → 回退双形状 true;createdAt 存在但 updatedAt 缺失 → 回退双形状 true(均用真实 decode 载荷构造,非 snapshotChange 双时间戳默认值)。至此 `createdAt!==undefined && updatedAt!==undefined` 的四种组合(双双、双缺、仅 created、仅 updated)全部有断言覆盖。\n\n### 验证\n- 测试:`vitest run packages/client/ui-workgraph/tests` → 3 文件 **21/21 全绿**。\n- 覆盖:`workgraph-definition.ts` 及整包(含 src/index.ts、invariant.ts、WorkGraphNode.tsx、locales.ts)逐文件 **100/100/100/100**。\n- lint:仍为既有 **11 个错误**(同 t1/t4 集合,3 个文件),**零新增**;被改的 spec 文件无 lint 错误。\n- 纯测试改动,bundle 无需重打(未重建)。\n- 最终 push 已执行,spec 文件 mirror↔host md5 一致。\n\n### 未决事项\n- 无新增。既有 11 个 oxlint 错误仍建议独立清理。"
+    },
+    {
+      "id": "t7",
+      "subject": "host 快照端点 /plugins/dsh-workgraph/state",
+      "description": "实现 host 侧 workgraph 快照端点:共享类型(workgraph 包)+ 快照装配(workgraph-scheduler)+ /plugins/dsh-workgraph/state 路由注册 + 单测。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786787761833,
+      "updatedAt": 1786788348659,
+      "output": "## t7 完成:host 侧 workgraph 快照端点\n\n### diff 摘要(mirror → push → host,5 个文件)\n1. **`packages/workgraph/workgraph/src/types.ts`** — 新增共享类型 `WorkGraphPanelNode`(id/title/state/rounds/blocks/depth/final/failure?)与 `WorkGraphPanelSnapshot`(sessionId/graphId/objective/status/planVersion/tokensSpent/tokenBudget?/pauseReason?/pendingDiscoveries/nodes),经 `export type *` 自动导出,client 可直接 import。\n2. **`packages/workgraph/workgraph-scheduler/src/snapshot.ts`(新文件)** — 纯函数 `assemblePanelSnapshot(sessionId, snapshot)`:depth = 最长依赖链(与客户端 layerNodes 同语义:依赖者层=依赖层+1、未知 blocks 跳过、循环数据整体降级 0,带 v8 ignore 注释);final = id==='gn-final';failure/tokenBudget/pauseReason 仅在存在时带上;pendingDiscoveries 计数量。只读无 IO 无 ctx。\n3. **`packages/workgraph/workgraph-scheduler/src/scheduler.ts`** — 懒绑定路由:`WebRouteHost` 结构接口 + `WEB_SERVER_KEYS = ['webServer','httpServer']`(兼容旧名);构造器里 `registerWebSurface()` + `ctx.on('internal/service')` 重试;`GET /plugins/dsh-workgraph/state`(exact,`cache-control: no-store`,content-type json),handler 枚举 `ctx.get('agents').list()`,对每个 `current(agent)` 非空的会话装配快照,响应 `{ graphs: WorkGraphPanelSnapshot[] }`;无 webServer 时静默跳过,无 agents 时返回空数组。provenance 已写入 JSDoc(dsh-agent-teams MIT 模式移植)。\n4. **`src/index.ts`** — 导出 `assemblePanelSnapshot`。\n5. **`tests/snapshot.spec.ts`(新文件,11 测试)** — 纯装配:链(0/1/2)/菱形(0/0/1/2)/循环降级 0/未知 blocks 跳过/final 标记/failure 透传/字段透传+pendingDiscoveries 计数/空图+可选字段省略;路由:注册形状(exact+path)、handler 响应(`{graphs:[...]}`、200、no-store、content-type、sessionId 过滤)、无 agents → `{graphs:[]}`、headless 无 webServer 不炸、晚绑定注册+兼容键不重复注册(覆盖 includes 两分支)。\n\n### 查证结论\n- **webServer 服务名**:`webServer`(dsh-host-webserver 的 `WebServer` 服务,`ctx.get('webServer')` 有类型;`register(route): () => void` 返回 disposer)。保留 `httpServer` 兼容候选键(AgentTeams 同款 WEB_SERVER_KEYS)。**可选注入**:用 `ctx.get()` 懒取,未改 `static inject`(headless 安全,激活语义不变)。\n- **活跃 agent 枚举**:`ctx.agents.list()`(AgentRegistry.list,全部 live agents,注册序)——可行,走主路径;无需 ?session 回退。\n\n### 验证\n- `snapshot.spec.ts`:11/11 绿。\n- 全量:`vitest run packages/workgraph` → **19 文件 300/300 绿**(workgraph + scheduler + command-workgraph)。\n- 覆盖(scheduler 包全量):`scheduler.ts` 100/100/100/100、`snapshot.ts` 100/100/100/100(逐文件门禁达标)。\n- 类型:`tsc -b` workgraph + workgraph-scheduler exit 0。\n- lint:我的 5 个文件 **0 错误**(修掉了 require-await/max-len/未用变量/多余断言);包内剩余 16 个错误全部为 fork 既有工作树问题(optimizer.ts/project.ts/rounds.ts/worktrees.ts/scheduler.ts 426,459,954/optimizer.spec.ts),非本次引入。\n- 5 个改动文件 mirror↔host md5 一致。\n\n### 路由响应样例(测试实证)\n```json\n{ \"graphs\": [ { \"sessionId\": \"<session>\", \"graphId\": \"wg-<uuid>\", \"objective\": \"ship it\",\n  \"status\": \"active\", \"planVersion\": 1, \"tokensSpent\": 0, \"pendingDiscoveries\": 1,\n  \"nodes\": [ { \"id\": \"gn-<hex8>\", \"title\": \"A\", \"state\": \"ready\", \"rounds\": 0,\n    \"blocks\": [], \"depth\": 0, \"final\": false } ] } ] }\n```\n\n### 未决\n- 无新增。scheduler 包 16 个既有 oxlint 错误建议独立清理任务。"
+    },
+    {
+      "id": "t8",
+      "subject": "client 浮动活动面板移植",
+      "description": "实现 client 侧浮动活动面板:activity-model 纯投影移植 + ActivityPanel(轮询/折叠 badge/按会话过滤/DAG 分层悬停高亮/点击固定)+ body-portal 挂载 + locales + 测试。",
+      "status": "completed",
+      "assignee": "researcher",
+      "dependencies": [],
+      "createdAt": 1786787761839,
+      "updatedAt": 1786790605300,
+      "output": "t8(client 浮动活动面板移植)完成,所有门禁通过。\n\n**改动(mirror,已 sync.sh push 到宿主)**:\n- 新增 `src/client/activity-model.ts`(纯投影,provenance: dsh-agent-teams activity-model.ts, MIT):`nodeStages`(按 depth 分层、缺 depth 降级 0、稳定排序)、`relatedNodeIds`(blocks 双向上下游链,循环安全)、`activityPanelExpandedForSession`(会话归属)。\n- 新增 `src/client/ActivityPanel.tsx`(1s 轮询 `/plugins/dsh-workgraph/state` + inFlight 守卫;折叠 badge(4s settle 自动展开/2s 无图自动收起);按 `graph.sessionId === 当前会话` 过滤;图头部(objective/状态胶囊/plan/spend/budget/发现数/暂停原因);DAG 分层列(起点/依赖层 N,复用快照 depth,不重复实现分层)+ 节点卡(状态徽标+rounds+失败原因+等待原因, final 双线)+ 悬停高亮上下游链 + 点击固定 + Esc 取消;`OPEN_WORKGRAPH_PANEL_EVENT` 窗口事件(空 payload 亦可,t9 卡片接);body-portal 挂载 + 生命周期全走 ctx.effect/disposer;面板类型为 t7 对齐的镜像(WorkGraphPanelNode 无 spec 字段)。\n- 新增 `src/client/ActivityPanel.module.css`(参照 AgentTeams CSS,含 elevated-surface scrollbar l2 rebind 满足仓库不变式)。\n- 修改 `src/client/index.ts`:inject 增 'sessions',apply 挂载 body-portal 面板(createElement 因入口是 .ts);卡片/definition/字典注册不变。\n- 修改 `src/client/locales.ts`:新增 11 个 panel.* 键(zh/en 齐全)。\n- 新增测试 `tests/activity-model.client.spec.ts`(10)+ `tests/activity-panel.client.spec.tsx`(20,轮询/折叠/过滤/悬停/固定/事件/生命周期,fake timers + mock fetch);扩展 `tests/browser-plugin.client.spec.tsx`(3,含 sessions 假服务与面板挂载/卸载)。\n\n**验证(宿主)**:\n- vitest:52/52 通过(5 个测试文件)。\n- 覆盖率:ui-workgraph src 逐文件 100%(scoped run EXIT=0;ActivityPanel/activity-model/index/workgraph-definition 全部 100/100/100/100)。\n- tsc -b tsconfig.client.json:exit 0。\n- oxlint:我的文件 0 错误;全仓 46 个遗留错误全部为既有(workgraph-scheduler 20 + command-workgraph 15 + ui-workgraph 的 workgraph-definition.ts 8 + WorkGraphNode.tsx 2——t8 零新增)。\n\n**与 AgentTeams 的差异(provenance 注明)**:①数据源=调度器内存快照端点(无成员/成员树,面板结构=图头部+DAG,不搬成员区);②分层直接用 host 预计算 depth,客户端不做分层算法(nodeStages 只防御缺 depth);③无 archived 变体(clear 即墓碑,无 ?archived 轮询);④无鲸鱼头像(节点卡用状态徽标);⑤卡片联动事件名 workgraph:open-panel(常量 OPEN_WORKGRAPH_PANEL_EVENT 已导出,payload 可空)。未运行 bundle 重建(按简报 t9 后统一)。"
+    },
+    {
+      "id": "t9",
+      "subject": "卡片交互升级与面板联动",
+      "description": "升级 WorkGraphNode 卡片交互:悬停高亮上下游依赖链(relatedTaskIds)、点击固定、Esc 取消、面板唤起按钮(OPEN_WORKGRAPH_PANEL_EVENT)。只读投影,不破坏 fold 不变式。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [
+        "t8"
+      ],
+      "createdAt": 1786788362783,
+      "updatedAt": 1786791078803,
+      "output": "## t9 完成:卡片交互升级与面板联动\n\n### diff 摘要(mirror → push → host,4 个文件)\n1. **`src/client/WorkGraphNode.tsx`**(卡片交互升级):\n   - **悬停高亮**:新增 `hoveredId` 本地状态;focusedId = selectedId(pin) ?? hoveredId(preview);经 activity-model 的 `relatedNodeIds`(适配层:chat 载荷 depth 由 layer 下标编码,`data.layers.flatMap((layer, depth) => …)` 构造 RelationshipNode 行)计算上下游链,链上节点 `data-focused`、其余 `data-dimmed`,mouseleave/blur 恢复。\n   - **点击固定**:复用既有 `selectedId` 作 pin —— 点击 = 固定链高亮 + 打开详情(Esc 取消,详情关闭),与面板 DependencyMap 同语义(pin 优先于 hover);window keydown Escape 监听(cleanup 随卸载)。\n   - **面板唤起按钮**:header 右侧 \"活动面板\" 按钮(新 i18n key `card.openPanel`),点击 `window.dispatchEvent(new CustomEvent(OPEN_WORKGRAPH_PANEL_EVENT, { detail: { graphId: node.id, sessionId, objective, status } }))`;常量与 `WorkGraphPanelOpenDetail` 从 `ActivityPanel.tsx` 导入;sessionId 来自 slot 运行时 PropsRuntime 的 session 标准 kit(ui-slots SessionStandardProps)。\n   - 只读投影纪律:未动 workgraph-definition.ts;交互全部组件本地 state,无会话事件。provenance 写入 JSDoc(AgentTeams DependencyMap 模式,MIT)。\n2. **`src/client/WorkGraphNode.module.css`**:`.openPanel` 胶囊按钮;`.node[data-focused]` 主色描边 + `.node[data-dimmed]` 降透明度 0.34 + 120ms transition。\n3. **`src/client/locales.ts`**:zh `card.openPanel` '活动面板' / en 'Activity panel'(三件套 key 对齐)。\n4. **`tests/workgraph-node.client.spec.tsx`**:更新按钮计数 4→5(4 节点卡 + 1 面板按钮);新增 5 测试 —— 悬停链高亮+离开恢复、点击固定(链高亮+详情共存)+ hover 不覆盖 pin + Esc 清除、键盘 focus/blur 高亮 + 非 Esc 键不干扰、面板事件 dispatch(带完整 detail:graphId/sessionId/objective/status)、sessionId 缺失时仍 dispatch(graphId 必带)。\n\n### t7/t8 类型对齐说明\n- `ActivityPanel.tsx`:t8 最终版已把本地镜像类型换为 `@deepseek-ai/dsh-workgraph` 的 `WorkGraphPanelSnapshot/WorkGraphPanelNode`(line 36 import + line 62 re-export),**单一声明源已达成**,我核验无残留镜像。\n- `activity-model.ts`:`RelationshipNode` 是泛型最小结构约束(id/string 接受 branded WorkNodeId、blocks、depth),非面板类型镜像,**保持不动**;卡片适配层产生的行即满足它。\n- 对齐后 57 测试全绿,无类型漂移。\n\n### 验证\n- 测试:`vitest run packages/client/ui-workgraph/tests` → 5 文件 **57/57 全绿**(node 11→15,panel 20,model 10,definition 12,plugin 3)。\n- 覆盖:整包逐文件 **100/100/100/100**(含 WorkGraphNode.tsx、ActivityPanel.tsx、activity-model.ts;中途补了键盘 focus/blur 与非 Esc 键测试覆盖 114 行分支与 onFocus/onBlur)。\n- 类型:`tsc -b packages/client/ui-workgraph` exit 0。\n- lint:**8 个既有错误**(全在 workgraph-definition.ts,同 t1/t4/t6 集合),**零新增** —— 我顺带修掉了 WorkGraphNode.tsx 里 2 个既有的 no-confusing-void-expression(onClick/关闭详情),包内错误数从 11 降到 8。\n- **bundle 重建(本次要做)**:`tsc -b && tsdown --env.DSH_BUILD_FACE client` exit 0;`lib/client.js` mtime 18:51(63291 字节),grep 验证含 `workgraph:open-panel`(1 处)与 `relatedNodeIds`(3 处)。\n- 4 个改动文件 mirror↔host md5 一致。\n\n### 未决/备注\n- 构建期间观察到 `packages/client/*/lib` 输出在我两条命令之间被外部进程清空过(全包 lib 目录一起消失,非本包特有),重建即恢复且验证通过;若队友在宿主跑过 clean/构建,属正常并发现象,最终产物已确认存在且含面板代码。\n- 无新增未决。既有 8 个 workgraph-definition.ts lint 错误仍建议独立清理。"
+    },
+    {
+      "id": "t10",
+      "subject": "评审阶段二交付",
+      "description": "评审阶段二完整交付:host 快照端点(路由注册/载荷形状/懒绑定/一致性)、client 面板(轮询/折叠/生命周期/disposer)、卡片交互(只读投影、不破坏 fold 不变式)。红绿测试验证。",
+      "status": "completed",
+      "assignee": "reviewer",
+      "dependencies": [
+        "t7",
+        "t8",
+        "t9"
+      ],
+      "createdAt": 1786788362792,
+      "updatedAt": 1786791333867,
+      "output": "评审结论:通过(PASS)。独立验证(非复述):host fork 上 ui-workgraph 全套 57/57 绿(activity-model 10 + workgraph-definition 12 + browser-plugin 3 + activity-panel 20 + workgraph-node 12)、workgraph 全量 300/300 绿(scheduler 261 含 snapshot.spec 11);覆盖率门禁(per-file 100%)对全部阶段二文件命中:ActivityPanel.tsx / activity-model.ts / WorkGraphNode.tsx / index.ts / locales.ts / snapshot.ts / scheduler.ts 均 100/100/100/100;bundle 重建产物 lib/client.js 含新代码(grep workgraph:open-panel×5、relatedNodeIds×3、/plugins/dsh-workgraph/state×2)。\n\n【1 host 端点 — 通过】\n- 路由注册/懒绑定:WebRouteHost 结构接口 + WEB_SERVER_KEYS=['webServer','httpServer'] + webRegistered 守卫 + ctx.effect(disposer) + ctx.on('internal/service') 重试,与 AgentTeams 参考(src/index.ts:137-220)逐行同构;headless 无 webServer 静默跳过(测试 'skips registration silently')、晚绑定补注册且不重复注册(测试 late binding)。\n- 载荷与内存 current 一致性:current() = latest map(commit() 同步 set)或会话日志 fold,都是完整已提交快照——tracker 转换是纯函数、先构造后提交,不存在半转换快照;不做投影兜底是设计选择(面板是 live 活动通道,仅复活未恢复的图不显示),可接受。\n- ctx.agents.list() 安全性:dsh-agent AgentRegistry.list()(packages/core/agent/src/index.ts:603)返回新数组、同步无锁;handler 内 ctx.get('agents') 可选守卫,无 agents 服务返回 {graphs:[]}(测试覆盖)。\n- no-store 头 ✓、错误处理:handler 无 try/catch,与参考同形;真实数据由 scheduler 写入必严格合法,fold 抛错仅理论(外来损坏数据)。建议(非阻塞):每 agent try/catch 隔离,避免一个坏会话拖垮整个端点。\n\n【2 面板生命周期 — 通过】轮询 effect:cancelled+clearInterval 清理、inFlight 守卫防重叠、卸载后丢弃迟到 fetch(测试覆盖)、非 ok/畸形/拒绝 fetch 保留上次快照;Esc keydown 清理 ✓;portal 挂载/卸载(ctx.effect → root.unmount+host.remove,browser-plugin 测试验证);session 切换:useLayoutEffect 重置 open/owner + visibleGraphs/visibleHistoric 按 sessionId 过滤 + activityPanelExpandedForSession 渲染门(activity-model 测试覆盖),面板不泄漏到新会话。\n\n【3 交互只读性 — 通过】WorkGraphNode 悬停/固定/详情全部本地 state(selectedId/hoveredId);openActivityPanel 走 window CustomEvent(非会话事件);DependencyMap 的 preview/pin 本地 state;workgraph-definition.ts 自 t5 未动(316 行、无 panel/Activity 引用,git diff 无阶段二内容),start 检测不变式完好。\n\n【4 类型单源 — 通过】ActivityPanel.tsx:36/62 从 @deepseek-ai/dsh-workgraph 导入并 re-export WorkGraphPanelNode/Snapshot;全仓 grep 无客户端镜像 interface;WorkGraphPanelOpenDetail 是合法的客户端新事件类型(非镜像)。\n\n【5 红绿验证 — 通过】绿:57+300 测试、阶段二文件 100% 覆盖、bundle 含新代码(见上)。红:阶段二为功能新增,回归测试(activity-panel 20 等)直接断言新行为,非红转绿场景。注:我 scoped 覆盖运行把未触碰的 invariant.ts(workgraph/workgraph-scheduler 各一)拉入 include 报 0%,git diff 确认二文件无阶段二改动,其覆盖由全仓 lane 的其它测试提供,与本阶段无关。\n\n【6 契约核对 — 通过】面板读取字段 graph.{sessionId,graphId,objective,status,planVersion,tokensSpent,tokenBudget?,pauseReason?,pendingDiscoveries,nodes} 与 node.{id,title,state,rounds,blocks,depth,final,failure?} 逐字段在 assemblePanelSnapshot(workgraph-scheduler/src/snapshot.ts:69-92)输出中齐备,由共享类型强约束;depth 与 client layerNodes 同语义(最长依赖链、未知跳过、环退化 0,测试双向覆盖);端点测试断言 sessionId/objective 直通。\n\n非阻塞建议(均不阻塞合入):① 路由 handler 每 agent try/catch(坏会话隔离);② 面板 CSS 以 :global 耦合 shell 的 [data-phase='active'](模块注释已说明,shell 若改名会失效);③ 1s 轮询恒开并枚举全部 live agents,harness 规模无碍,可考虑无会话时暂停;④ 沿用 t3/t5 遗留的 dispatchRetryAll no-op 守卫建议。参考模式核对:dsh-agent-teams/src/index.ts(端点/懒绑定)、snapshot.ts(depth 装配)、client/ActivityPanel.tsx(hover/pin/Esc/related 链)移植忠实。"
+    },
+    {
+      "id": "t11",
+      "subject": "t10 非阻塞建议落地",
+      "description": "处理 t10 评审的 4 条非阻塞建议中值得落地的两条:① 路由 handler 每 agent try/catch(防御单个 agent 装配抛错导致 500);③ 面板轮询在无会话或当前会话无图时暂停(避免空转)。②④ 已记录不实现。",
+      "status": "completed",
+      "assignee": "engineer",
+      "dependencies": [],
+      "createdAt": 1786791344979,
+      "updatedAt": 1786791749474,
+      "output": "## t11 完成:t10 两条非阻塞建议落地\n\n### 1. 路由 handler 逐 agent try/catch(`workgraph-scheduler/src/scheduler.ts`)\n- `/plugins/dsh-workgraph/state` handler 内逐 agent 包裹 try/catch:单个会话的 `current()`/装配抛错(如 torn-down 会话日志)→ `logger.warn` 跳过,其余健康图照常返回 200。\n- 新测试(`snapshot.spec.ts`):agents 列表首个为坏会话(`{ id, session: null } as unknown as Agent`,`current()` 访问 `session.events` 必抛),断言响应仍 200、`graphs` 含健康会话的图。\n\n### 2. 面板轮询暂停优化(`ActivityPanel.tsx`)\n- 新状态 `pollEpoch`(面板唤起时 bump)+ 派生 `sessionHasGraph = current !== undefined && graphs.some(g => g.sessionId === current)`。\n- 轮询 effect 重构:每次重启(挂载/会话切换/唤起)先做一次发现轮询;**1s interval 仅在 `sessionHasGraph` 时存在**;无图会话只保留挂载发现轮询后即暂停(clearInterval),不再 1s 空转。\n- 唤醒路径(会话 id 切换 / `OPEN_WORKGRAPH_PANEL_EVENT` 唤起 bump epoch)保证无图→有图可重新发现,\"暂停但不打死\"。\n- 测试:新增\"无图会话暂停(3s 内零新增 fetch)\"与\"切到有图会话恢复轮询(interval 继续)\"两条;重写三个依赖旧轮询语义的测试——失败容忍改为\"图存活期内的失败轮询\"、重叠保护改为\"图存活时 interval tick 遇 in-flight 跳过\"、auto-expand 改为\"会话切换唤醒后过 settle 窗口自动展开\";auto-close 测试改为图稳定后动态切换 mock 为空。\n\n### 验证\n- 测试:`ui-workgraph` 5 文件 **59/59**;`workgraph-scheduler` 16 文件 **262/262**;`packages/workgraph` 全树 **301/301**。\n- 覆盖:两包逐文件 **100/100/100/100**(ActivityPanel.tsx、scheduler.ts、snapshot.ts 等;补了 overlap 测试覆盖 in-flight 守卫分支)。\n- 类型:`tsc -b` scheduler + ui-workgraph exit 0。\n- lint:**零新增** —— 28 个错误全部为既有集合(workgraph-definition.ts 8 个 + scheduler 包 20 个,行号因 t11 新增行平移),ActivityPanel.tsx 与我的新代码 0 错误。\n- bundle:`tsdown --env.DSH_BUILD_FACE client` exit 0;`lib/client.js` 19:02(63618 字节),含 `sessionHasGraph`(3 处)。\n- 4 个改动文件 mirror↔host md5 一致。\n\n### 备注\n- 语义变化:无图会话不再自动轮询发现\"同会话后出现的图\"——发现依赖会话切换或卡片唤起按钮(唤起即 fetch 刷新);这正是\"暂停但不打死\"的取舍,与 t10 建议一致。auto-expand 测试相应改为会话切换唤醒变体。"
+    }
+  ],
+  "taskSeq": 11
+}

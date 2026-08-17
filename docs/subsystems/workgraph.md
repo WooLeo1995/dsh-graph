@@ -11,18 +11,28 @@ One engine per context owns the durable work graph of each session. Mutations va
 ```ts type-equiv
 /** Service Definition contract implemented by the scheduler provider. */
 interface WorkGraphEngine {
-  /** Plan and start a work graph for the agent's session. */
+  /** Plan and start a work graph, then drive it to settlement (blocking). */
   set(agent: Agent, request: SetWorkGraphRequest): Promise<WorkGraphSnapshot>
+  /** Validate, commit the pending graph, and drive planning+execution DETACHED. */
+  dispatchSet(agent: Agent, request: SetWorkGraphRequest): Promise<WorkGraphSnapshot>
   /** Read the session's current graph; a fresh session revives the repo projection. */
   status(agent: Agent): Promise<WorkGraphSnapshot | null>
   /** Pause the graph, cancelling the live episode with bounded child settlement. */
   pause(agent: Agent, reason?: string): Promise<WorkGraphSnapshot>
-  /** Resume a paused graph, optionally topping up an exhausted token budget. */
+  /** Resume a paused graph, optionally topping up an exhausted token budget (blocking). */
   resume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGraphSnapshot>
-  /** Reset one terminal node and its transitively blocked chain. */
+  /** Resume to active and re-drive DETACHED; a pending graph re-plans there. */
+  dispatchResume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGraphSnapshot>
+  /** Reset one terminal node and its transitively blocked chain (blocking). */
   retry(agent: Agent, node: WorkNodeId): Promise<WorkGraphSnapshot>
-  /** Reset every failed node plus its blocked chains as ONE union batch. */
+  /** Reset one terminal node plus its blocked chain and re-drive DETACHED. */
+  dispatchRetry(agent: Agent, node: WorkNodeId): Promise<WorkGraphSnapshot>
+  /** Reset every failed node plus its blocked chains as ONE union batch (blocking). */
   retryAll(agent: Agent): Promise<WorkGraphSnapshot>
+  /** Reset every failed chain as ONE batch and re-drive DETACHED. */
+  dispatchRetryAll(agent: Agent): Promise<WorkGraphSnapshot>
+  /** Await the current episode's settlement and return the latest snapshot. */
+  settled(agent: Agent): Promise<WorkGraphSnapshot>
   /** Clear the graph, its durable tombstone, and the repo projection. */
   clear(agent: Agent): Promise<void>
 }
@@ -47,7 +57,11 @@ Node states are `waiting | ready | running | achieved | failed | blocked`; graph
 
 ## `workgraph/*` event scope
 
-The session log is the source of truth: every accepted transition appends a whole-value `workgraph/change` event (the complete post-transition snapshot, or the clear tombstone), and the live agent-scoped `workgraph/changed` notification mirrors it. The Web Client renders the live DAG as a pure function of these events, surviving reload; a fresh session revives the repository projection (`.dsh/graph.jsonl`) sanitized and demoted to paused under an exclusive lock.
+The session log is the source of truth: every accepted transition appends a whole-value `workgraph/change` event (the complete post-transition snapshot, or the clear tombstone), and the live agent-scoped `workgraph/changed` notification mirrors it. The Web Client renders the live DAG as a pure function of these events, surviving reload; the DAG chat node materializes on the set commit — the first change, identified by its creation fact (`createdAt === updatedAt` holds only there, independent of the history cap) — and every later change updates it in place. A fresh session revives the repository projection (`.dsh/graph.jsonl`) sanitized and demoted to paused under an exclusive lock.
+
+### Live activity panel
+
+The floating activity monitor (pattern ported from dsh-agent-teams, MIT) polls the scheduler's snapshot route `GET /plugins/dsh-workgraph/state` (registered lazily on `ctx.webServer`/`ctx.httpServer`, `cache-control: no-store`) and renders the current session's graph: status pill, plan version, spend/budget, discoveries, and the depth-layered DAG with hover-chain highlight and click-to-pin. The route assembles `WorkGraphPanelSnapshot` rows (shared types in `@deepseek-ai/dsh-workgraph`) from each live agent's committed `current()` snapshot; the panel is display-only and never mutates session state.
 
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
@@ -65,12 +79,29 @@ Work-graph Service Definition contract. One engine per context owns the durable 
 
 ```ts cordis-catalog
 /**
- * Plan and start a work graph for the agent's session.
+ * Plan and start a work graph for the agent's session, then drive it to
+ * settlement (completion, pause, wedge, or budget trip). The returned
+ * promise resolves with the settled snapshot, not the pending one — the
+ * blocking form of {@link dispatchSet}.
  * @param agent - the agent whose session owns the graph.
  * @param request - the objective and an optional token budget.
- * @returns the initial planned snapshot.
+ * @returns the settled snapshot.
  */
 abstract set(agent: Agent, request: SetWorkGraphRequest): Promise<WorkGraphSnapshot>
+
+/**
+ * Validate, create, and commit a pending work graph, then run planning and
+ * the drive DETACHED in the background. Returns as soon as the pending
+ * graph is durable — the human command surface uses this so `/graph set`
+ * never blocks the command channel for the graph's whole lifetime.
+ * Progress is observed through {@link status}, the `workgraph/*` events,
+ * and the GUI DAG; {@link pause} still awaits the episode's bounded
+ * settlement.
+ * @param agent - the agent whose session owns the graph.
+ * @param request - the objective and an optional token budget.
+ * @returns the durable pending snapshot (planning starts in the background).
+ */
+abstract dispatchSet(agent: Agent, request: SetWorkGraphRequest): Promise<WorkGraphSnapshot>
 
 /**
  * Read the session's current work graph. A session with no durable events
@@ -90,17 +121,29 @@ abstract status(agent: Agent): Promise<WorkGraphSnapshot | null>
 abstract pause(agent: Agent, reason?: string): Promise<WorkGraphSnapshot>
 
 /**
- * Resume a paused graph, optionally topping up an exhausted token budget.
+ * Resume a paused graph, optionally topping up an exhausted token budget,
+ * then drive it to settlement. The blocking form of {@link dispatchResume}.
  * @param agent - the agent whose session owns the graph.
  * @param request - a positive budget top-up from spent-so-far.
- * @returns the resumed snapshot.
+ * @returns the settled snapshot.
  */
 abstract resume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGraphSnapshot>
 
 /**
+ * Resume a paused, blocked, or budget-limited graph to active and re-drive
+ * it DETACHED in the background (a pending graph re-plans there). Returns
+ * the durable resumed snapshot immediately; validation refusals (locked
+ * projection, plain resume on a budget-limited graph) still throw.
+ * @param agent - the agent whose session owns the graph.
+ * @param request - an optional positive budget top-up from spent-so-far.
+ * @returns the durable resumed snapshot.
+ */
+abstract dispatchResume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGraphSnapshot>
+
+/**
  * Reset one terminal node and its transitively blocked chain to re-runnable
  * work; refuses while an upstream dependency is neither achieved nor in the
- * same reset batch.
+ * same reset batch. The blocking form of {@link dispatchRetry}.
  * @param agent - the agent whose session owns the graph.
  * @param node - the terminal node to retry.
  * @returns the snapshot after the reset batch.
@@ -108,14 +151,44 @@ abstract resume(agent: Agent, request?: ResumeWorkGraphRequest): Promise<WorkGra
 abstract retry(agent: Agent, node: WorkNodeId): Promise<WorkGraphSnapshot>
 
 /**
+ * Reset one terminal node and its transitively blocked chain, then re-drive
+ * the graph DETACHED in the background. Returns the durable reset snapshot
+ * immediately.
+ * @param agent - the agent whose session owns the graph.
+ * @param node - the terminal node to retry.
+ * @returns the durable snapshot after the reset batch.
+ */
+abstract dispatchRetry(agent: Agent, node: WorkNodeId): Promise<WorkGraphSnapshot>
+
+/**
  * Reset every failed node plus its transitively blocked chain as ONE batch
  * (bare `/graph retry`): a shared final blocked by sibling failures refuses
- * any single-root reset whose other dependency is still failed.
+ * any single-root reset whose other dependency is still failed. The
+ * blocking form of {@link dispatchRetryAll}.
  * @param agent - the agent whose session owns the graph.
  * @returns the snapshot after the union reset batch; unchanged when no
  * node is failed.
  */
 abstract retryAll(agent: Agent): Promise<WorkGraphSnapshot>
+
+/**
+ * Reset every failed node plus its transitively blocked chain as ONE batch
+ * and re-drive the graph DETACHED in the background. Returns the durable
+ * reset snapshot immediately.
+ * @param agent - the agent whose session owns the graph.
+ * @returns the durable snapshot after the union reset batch; unchanged when
+ * no node is failed.
+ */
+abstract dispatchRetryAll(agent: Agent): Promise<WorkGraphSnapshot>
+
+/**
+ * Await the current episode's settlement (the detached planning+drive chain
+ * started by the last dispatch) and return the latest committed snapshot.
+ * Throws `WORKGRAPH_NOT_FOUND` when the graph was cleared mid-episode.
+ * @param agent - the agent whose session owns the graph.
+ * @returns the settled snapshot.
+ */
+abstract settled(agent: Agent): Promise<WorkGraphSnapshot>
 
 /**
  * Clear the graph and its projection; a cleared graph cannot resurrect.
